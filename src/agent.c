@@ -3,7 +3,7 @@
 #include <string.h>
 #include <sys/select.h>
 #include <unistd.h>
-
+#include <esp_log.h>
 #include "agent.h"
 #include "base64.h"
 #include "ice.h"
@@ -175,7 +175,7 @@ static int agent_create_stun_addr(Agent* agent, Address* serv_addr) {
   ice_candidate_create(ice_candidate, agent->local_candidates_count, ICE_CANDIDATE_TYPE_SRFLX, &bind_addr);
   return ret;
 }
-
+static const char *TAG = "MQTT" ;
 static int agent_create_turn_addr(Agent* agent, Address* serv_addr, const char* username, const char* credential) {
   int ret = -1;
   uint32_t attr = ntohl(0x11000000);
@@ -190,13 +190,13 @@ static int agent_create_turn_addr(Agent* agent, Address* serv_addr, const char* 
 
   ret = agent_socket_send(agent, serv_addr, send_msg.buf, send_msg.size);
   if (ret == -1) {
-    LOGE("Failed to send TURN Binding Request.");
+    ESP_LOGE(TAG,"Failed to send TURN Binding Request.");
     return -1;
   }
 
   ret = agent_socket_recv_attempts(agent, NULL, recv_msg.buf, sizeof(recv_msg.buf), AGENT_STUN_RECV_MAXTIMES);
   if (ret <= 0) {
-    LOGD("Failed to receive STUN Binding Response.");
+    ESP_LOGE(TAG,"Failed to receive STUN Binding Response.");
     return ret;
   }
 
@@ -211,19 +211,19 @@ static int agent_create_turn_addr(Agent* agent, Address* serv_addr, const char* 
     stun_msg_write_attr(&send_msg, STUN_ATTR_TYPE_REALM, strlen(recv_msg.realm), recv_msg.realm);
     stun_msg_finish(&send_msg, STUN_CREDENTIAL_LONG_TERM, credential, strlen(credential));
   } else {
-    LOGE("Invalid TURN Binding Response.");
+    ESP_LOGE(TAG,"Invalid TURN Binding Response.");
     return -1;
   }
 
   ret = agent_socket_send(agent, serv_addr, send_msg.buf, send_msg.size);
   if (ret < 0) {
-    LOGE("Failed to send TURN Binding Request.");
+    ESP_LOGE(TAG,"Failed to send TURN Binding Request.");
     return -1;
   }
 
   agent_socket_recv_attempts(agent, NULL, recv_msg.buf, sizeof(recv_msg.buf), AGENT_STUN_RECV_MAXTIMES);
   if (ret <= 0) {
-    LOGD("Failed to receive TURN Binding Response.");
+   ESP_LOGE(TAG,"Failed to receive TURN Binding Response.");
     return ret;
   }
 
@@ -250,13 +250,13 @@ void agent_gather_candidate(Agent* agent, const char* urls, const char* username
   }
 
   if ((pos = strstr(urls + 5, ":")) == NULL) {
-    LOGE("Invalid URL");
+    ESP_LOGE(TAG,"Invalid URL");
     return;
   }
 
   port = atoi(pos + 1);
   if (port <= 0) {
-    LOGE("Cannot parse port");
+    ESP_LOGE(TAG,"Cannot parse port");
     return;
   }
 
@@ -266,13 +266,13 @@ void agent_gather_candidate(Agent* agent, const char* urls, const char* username
     if (ports_resolve_addr(hostname, &resolved_addr) == 0) {
       addr_set_port(&resolved_addr, port);
       addr_to_string(&resolved_addr, addr_string, sizeof(addr_string));
-      LOGI("Resolved stun/turn server %s:%d", addr_string, port);
+      ESP_LOGE(TAG,"Resolved stun/turn server %s:%d", addr_string, port);
 
       if (strncmp(urls, "stun:", 5) == 0) {
-        LOGD("Create stun addr");
+        ESP_LOGE(TAG,"Create stun addr");
         agent_create_stun_addr(agent, &resolved_addr);
       } else if (strncmp(urls, "turn:", 5) == 0) {
-        LOGD("Create turn addr");
+        ESP_LOGE(TAG,"Create turn addr");
         agent_create_turn_addr(agent, &resolved_addr, username, credential);
       }
     }
@@ -295,7 +295,7 @@ void agent_get_local_description(Agent* agent, char* description, int length) {
 
   // remove last \n
   description[strlen(description)] = '\0';
-  LOGD("local description:\n%s", description);
+  ESP_LOGE(TAG,"local description:\n%s", description);
 }
 
 int agent_send(Agent* agent, const uint8_t* buf, int len) {

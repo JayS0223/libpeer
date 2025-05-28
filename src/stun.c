@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
+#define STUN_ATTR_TYPE_ERROR_CODE 0x0009 
 #include "stun.h"
 #include "utils.h"
 

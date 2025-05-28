@@ -1,7 +1,7 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
-
+#include "esp_log.h"
 #include "socket.h"
 #include "utils.h"
 
@@ -258,7 +258,7 @@ int tcp_socket_send(TcpSocket* tcp_socket, const uint8_t* buf, int len) {
   }
   return ret;
 }
-
+static const char *TAG = "MQTT";
 int tcp_socket_recv(TcpSocket* tcp_socket, uint8_t* buf, int len) {
   int ret;
 
@@ -267,10 +267,25 @@ int tcp_socket_recv(TcpSocket* tcp_socket, uint8_t* buf, int len) {
     return -1;
   }
 
+  int error = 0;
+  socklen_t errlen = sizeof(error);
+
+  getsockopt(tcp_socket->fd, SOL_SOCKET, SO_ERROR, &error, &errlen);
+  if (error != 0) {
+    ESP_LOGE(TAG,"Socket error before recv: %s (%d)", strerror(error), error);
+  }
+  else{
+     ESP_LOGI(TAG,"No if executed");
+  }
+
   ret = recv(tcp_socket->fd, buf, len, 0);
+  ESP_LOGI(TAG , "Value of ret : %d", ret);
   if (ret < 0) {
-    LOGE("Failed to recv: %s", strerror(errno));
+    ESP_LOGE(TAG, "Failed to recv: %s, %d", strerror(errno), errno);
     return -1;
   }
+
+
+
   return ret;
 }

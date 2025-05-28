@@ -505,7 +505,7 @@ int peer_connection_loop(PeerConnection* pc) {
 
       if (CONFIG_KEEPALIVE_TIMEOUT > 0 && (ports_get_epoch_time() - pc->agent.binding_request_time) > CONFIG_KEEPALIVE_TIMEOUT) {
         LOGI("binding request timeout");
-        STATE_CHANGED(pc, PEER_CONNECTION_CLOSED);
+       // STATE_CHANGED(pc, PEER_CONNECTION_CLOSED);
       }
 
       break;

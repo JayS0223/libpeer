@@ -4,7 +4,7 @@
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>
-
+#include "esp_log.h"
 #include <core_http_client.h>
 #include <core_mqtt.h>
 
@@ -389,13 +389,15 @@ static void peer_signaling_mqtt_event_cb(MQTTContext_t* mqtt_ctx,
       break;
   }
 }
-
+static const char *TAG = "MQTT";
 static int peer_signaling_mqtt_connect(const char* hostname, int port) {
   MQTTStatus_t status;
   MQTTConnectInfo_t conn_info;
   bool session_present;
   char username[TOKEN_MAX_LEN] = {0};
   char password[TOKEN_MAX_LEN] = {0};
+
+    ESP_LOGI(TAG, "Inside peer_signalling_mqtt_connect function");
 
   if (ssl_transport_connect(&g_ps.net_ctx, hostname, port, NULL) < 0) {
     LOGE("ssl transport connect failed");
@@ -414,14 +416,15 @@ static int peer_signaling_mqtt_connect(const char* hostname, int port) {
 
   conn_info.cleanSession = false;
 
-  if (strlen(g_ps.token) > 0) {
-    peer_signaling_resolve_token(g_ps.token, username, password);
-    conn_info.pUserName = username;
-    conn_info.userNameLength = strlen(username);
-    conn_info.pPassword = password;
-    conn_info.passwordLength = strlen(password);
-  }
+ // if (strlen(g_ps.token) > 0) {
+    // peer_signaling_resolve_token(g_ps.token, username, password);
+    conn_info.pUserName = "rajan";
+    conn_info.userNameLength = strlen("rajan");
+    conn_info.pPassword = "Rajan@123";
+    conn_info.passwordLength = strlen("Rajan@123");
+ // }
 
+  strcpy(g_ps.client_id, "vsmqtt_client_d983");
   if (strlen(g_ps.client_id) > 0) {
     conn_info.pClientIdentifier = g_ps.client_id;
     conn_info.clientIdentifierLength = strlen(g_ps.client_id);
@@ -429,9 +432,16 @@ static int peer_signaling_mqtt_connect(const char* hostname, int port) {
 
   conn_info.keepAliveSeconds = KEEP_ALIVE_TIMEOUT_SECONDS;
 
-  status = MQTT_Connect(&g_ps.mqtt_ctx,
-                        &conn_info, NULL, CONNACK_RECV_TIMEOUT_MS, &session_present);
+ ESP_LOGI(TAG, "Before MQTT_Connect: Initial Status = %d", status);
 
+status = MQTT_Connect(&g_ps.mqtt_ctx,
+                      &conn_info,
+                      NULL,
+                      CONNACK_RECV_TIMEOUT_MS,
+                      &session_present);
+
+// After the call, log the resulting status value.
+ESP_LOGI(TAG, "After MQTT_Connect: Status = %d", status);
   if (status != MQTTSuccess) {
     LOGE("MQTT_Connect failed: Status=%s.", MQTT_Status_strerror(status));
     return -1;
