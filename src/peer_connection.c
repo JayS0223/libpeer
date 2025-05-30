@@ -191,10 +191,11 @@ PeerConnection* peer_connection_create(PeerConfiguration* config) {
   }
 
   if (pc->config.video_codec) {
-#if (CONFIG_VIDEO_BUFFER_SIZE) > 0
+
     LOGI("Video allocates heap size: %d", CONFIG_VIDEO_BUFFER_SIZE);
-    pc->video_rb = buffer_new(CONFIG_VIDEO_BUFFER_SIZE);
-#endif
+      const int video_buffer_size = 32768;  // 👈 Set your desired buffer size here (e.g., 32 KB)
+    LOGI("Video allocates heap size: %d", video_buffer_size);
+    pc->video_rb = buffer_new(video_buffer_size);
     rtp_encoder_init(&pc->vrtp_encoder, pc->config.video_codec,
                      peer_connection_outgoing_rtp_packet, (void*)pc);
 

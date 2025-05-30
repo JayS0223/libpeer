@@ -28,51 +28,85 @@ esp_g711_enc_config_t g711_cfg;
 esp_audio_enc_config_t enc_cfg;
 
 esp_err_t audio_codec_init() {
-  uint8_t* read_buf = NULL;
-  uint8_t* write_buf = NULL;
-  int read_size = 0;
-  int out_size = 0;
+    uint8_t* read_buf = NULL;
+    uint8_t* write_buf = NULL;
+    int read_size = 0;
+    int out_size = 0;
 
-  esp_audio_err_t ret = ESP_AUDIO_ERR_OK;
+    esp_audio_err_t ret = ESP_AUDIO_ERR_OK;
 
-  esp_audio_enc_register_default();
+    // Register default encoders
+    esp_audio_enc_register_default();
 
-  g711_cfg.sample_rate = ESP_AUDIO_SAMPLE_RATE_8K;
-  g711_cfg.channel = ESP_AUDIO_MONO;
-  g711_cfg.bits_per_sample = ESP_AUDIO_BIT16;
+    // Configure G711 encoder
+    g711_cfg.sample_rate = ESP_AUDIO_SAMPLE_RATE_8K;
+    g711_cfg.channel = ESP_AUDIO_MONO;
+    g711_cfg.bits_per_sample = ESP_AUDIO_BIT16;
 
-  enc_cfg.type = ESP_AUDIO_TYPE_G711A;
-  enc_cfg.cfg = &g711_cfg;
-  enc_cfg.cfg_sz = sizeof(g711_cfg);
+    enc_cfg.type = ESP_AUDIO_TYPE_G711A;  // Change to G711U if needed
+    enc_cfg.cfg = &g711_cfg;
+    enc_cfg.cfg_sz = sizeof(g711_cfg);
 
-  ret = esp_audio_enc_open(&enc_cfg, &enc_handle);
-  if (ret != ESP_AUDIO_ERR_OK) {
-    ESP_LOGE(TAG, "audio encoder open failed");
+    // Log encoder type
+    const char* encoder_type_str;
+    switch (enc_cfg.type) {
+        case ESP_AUDIO_TYPE_G711A:
+            encoder_type_str = "G711A";
+            break;
+        case ESP_AUDIO_TYPE_G711U:
+            encoder_type_str = "G711U";
+            break;
+        default:
+            encoder_type_str = "Unknown";
+            break;
+    }
+
+g711_cfg.sample_rate = ESP_AUDIO_SAMPLE_RATE_8K;
+g711_cfg.channel = ESP_AUDIO_MONO;
+g711_cfg.bits_per_sample = ESP_AUDIO_BIT16;
+g711_cfg.frame_duration = 20;  // Add this to fix the error
+
+enc_cfg.type = ESP_AUDIO_TYPE_G711A;
+enc_cfg.cfg = &g711_cfg;
+enc_cfg.cfg_sz = sizeof(g711_cfg);
+
+ESP_LOGI(TAG, "Attempting to open audio encoder: G711A");
+ESP_LOGI(TAG, "Encoder config: sample_rate=%d, channel=%d, bits_per_sample=%d, frame_duration_ms=%d",
+         g711_cfg.sample_rate, g711_cfg.channel, g711_cfg.bits_per_sample, g711_cfg.frame_duration);
+ESP_LOGI(TAG, "Free heap before encoder open: %d", esp_get_free_heap_size());
+
+ret = esp_audio_enc_open(&enc_cfg, &enc_handle);
+if (ret != ESP_AUDIO_ERR_OK) {
+    ESP_LOGE(TAG, "audio encoder open failed, ret: %d", ret);
     return ESP_FAIL;
-  }
+}
+    // Get frame size
+    int frame_size = (g711_cfg.bits_per_sample * g711_cfg.channel) >> 3;
+    esp_audio_enc_get_frame_size(enc_handle, &read_size, &out_size);
+    ESP_LOGI(TAG, "audio codec init. frame size: %d, read size: %d, out size: %d",
+             frame_size, read_size, out_size);
 
-  int frame_size = (g711_cfg.bits_per_sample * g711_cfg.channel) >> 3;
-  // Get frame_size
-  esp_audio_enc_get_frame_size(enc_handle, &read_size, &out_size);
-  ESP_LOGI(TAG, "audio codec init. frame size: %d, read size: %d, out size: %d", frame_size, read_size, out_size);
-  // 8000HZ duration 20ms
-  if (frame_size == read_size) {
-    read_size *= 8000 / 1000 * 20;
-    out_size *= 8000 / 1000 * 20;
-  }
-  read_buf = malloc(read_size);
-  write_buf = malloc(out_size);
-  if (read_buf == NULL || write_buf == NULL) {
-    return ESP_FAIL;
-  }
+    // For 8000 Hz, 20ms frame
+    if (frame_size == read_size) {
+        read_size *= (8000 / 1000) * 20;
+        out_size *= (8000 / 1000) * 20;
+    }
 
-  aenc_in_frame.buffer = read_buf;
-  aenc_in_frame.len = read_size;
-  aenc_out_frame.buffer = write_buf;
-  aenc_out_frame.len = out_size;
+    read_buf = malloc(read_size);
+    write_buf = malloc(out_size);
 
-  ESP_LOGI(TAG, "audio codec init done. in buffer size: %d, out buffer size: %d", read_size, out_size);
-  return 0;
+    if (read_buf == NULL || write_buf == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate encoder buffers");
+        return ESP_FAIL;
+    }
+
+    aenc_in_frame.buffer = read_buf;
+    aenc_in_frame.len = read_size;
+    aenc_out_frame.buffer = write_buf;
+    aenc_out_frame.len = out_size;
+
+    ESP_LOGI(TAG, "audio codec init done. in buffer size: %d, out buffer size: %d", read_size, out_size);
+    return ESP_OK;
 }
 
 esp_err_t audio_init(void) {

@@ -41,10 +41,17 @@ int buffer_push_tail(Buffer* rb, const uint8_t* data, int size) {
 
   int align_size = ALIGN32(size + 4);
 
-  if (align_size > free_space) {
-    LOGE("no enough space");
-    return -1;
-  }
+  // if (align_size > free_space) {
+  //   LOGI("Buffer status: size=%d, head=%d, tail=%d, free_space=%d, align_size=%d",
+  //    rb->size, rb->head, rb->tail, free_space, align_size);
+  //   LOGE("no enough space");
+  //   return -1;
+  // }
+
+if (align_size > free_space) {
+    LOGW("Dropping packet due to buffer overflow: free=%d, needed=%d", free_space, align_size);
+    return 0; // or count dropped packets
+}
 
   int tail_end = (rb->tail + align_size) % rb->size;
 
