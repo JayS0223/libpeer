@@ -6,7 +6,7 @@ dependencies:
   mdns: "*"
   idf:
    version: ">=4.1.0"
-description: libpeer
+description: Videosdk IOT Component for ESP-IDF
 license: MIT
-url: https://github.com/sepfy/libpeer
-version: 0.0.2
+url: https://github.com/JayS0223/libpeer/tree/videosdk/iot
+version: 0.0.1
