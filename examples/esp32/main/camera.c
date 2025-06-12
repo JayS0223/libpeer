@@ -145,9 +145,15 @@ void camera_task(void* pvParameters) {
         ESP_LOGE(TAG, "Camera capture failed");
       }
 
-      // ESP_LOGI(TAG, "Camera captured. size=%zu, timestamp=%llu", fb->len, fb->timestamp);
+      // Log before sending video frame to peer connection
+      ESP_LOGI(TAG, "Camera captured frame, size=%zu, timestamp=%llu", fb->len, fb->timestamp);
       if (xSemaphoreTake(xSemaphore, portMAX_DELAY)) {
-        peer_connection_datachannel_send(g_pc, (char*)fb->buf, fb->len);
+        int send_ret = peer_connection_send_video(g_pc, fb->buf, fb->len);
+        if (send_ret < 0) {
+          ESP_LOGW(TAG, "Failed to queue video frame: peer_connection_send_video returned %d", send_ret);
+        } else {
+          ESP_LOGI(TAG, "Queued video frame to peer connection, %zu bytes", fb->len);
+        }
         xSemaphoreGive(xSemaphore);
       }
 
@@ -160,8 +166,11 @@ void camera_task(void* pvParameters) {
       }
 
       esp_camera_fb_return(fb);
+    } else {
+      if (eState != PEER_CONNECTION_COMPLETED) {
+        ESP_LOGD(TAG, "PeerConnection not ready (state=%d), skipping video send", eState);
+      }
     }
-
     vTaskDelay(pdMS_TO_TICKS(1000 / 20));
   }
 }

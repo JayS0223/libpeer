@@ -16,8 +16,8 @@
 #include "mdns.h"
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
-
 #include "peer.h"
+#include "videosdk.h"
 
 static const char* TAG = "webrtc";
 
@@ -43,8 +43,17 @@ int64_t get_timestamp() {
 }
 
 static void oniceconnectionstatechange(PeerConnectionState state, void* user_data) {
-  ESP_LOGI(TAG, "PeerConnectionState: %d", state);
+  ESP_LOGI(TAG, "PeerConnectionState changed: %d (%s)", state, peer_connection_state_to_string(state));
   eState = state;
+  if (eState == PEER_CONNECTION_CONNECTED) {
+    ESP_LOGI(TAG, "DTLS handshake completed, connection is now CONNECTED");
+  } else if (eState == PEER_CONNECTION_COMPLETED) {
+    ESP_LOGI(TAG, "ICE and DTLS completed, connection is now COMPLETED");
+  } else if (eState == PEER_CONNECTION_FAILED) {
+    ESP_LOGE(TAG, "PeerConnection FAILED");
+  } else if (eState == PEER_CONNECTION_CLOSED) {
+    ESP_LOGW(TAG, "PeerConnection CLOSED");
+  }
   // not support datachannel close event
   if (eState != PEER_CONNECTION_COMPLETED) {
     gDataChannelOpened = 0;
@@ -61,6 +70,8 @@ void onopen(void* userdata) {
 }
 
 static void onclose(void* userdata) {
+  ESP_LOGI(TAG, "Datachannel closed");
+  gDataChannelOpened = 0;
 }
 
 void peer_connection_task(void* arg) {
@@ -68,11 +79,12 @@ void peer_connection_task(void* arg) {
 
   for (;;) {
     if (xSemaphoreTake(xSemaphore, portMAX_DELAY)) {
+      ESP_LOGD(TAG, "Calling peer_connection_loop, current state: %d (%s)", eState, peer_connection_state_to_string(eState));
       peer_connection_loop(g_pc);
+      ESP_LOGI(TAG, "PeerConnection state after loop: %d (%s)", eState, peer_connection_state_to_string(eState));
       xSemaphoreGive(xSemaphore);
     }
-
-    vTaskDelay(pdMS_TO_TICKS(1));
+    vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
 
@@ -82,11 +94,13 @@ void app_main(void) {
 
   PeerConfiguration config = {
     .ice_servers = {
-        {.urls = "stun:stun.l.google.com:19302"}},
+        {.urls = "stun:stun.l.google.com:19302"},
+    },
 #if defined(CONFIG_WHIP_URL)
-    .video_codec = CODEC_H264,
+   // .video_codec = CODEC_H264,
+   .audio_codec = CODEC_OPUS
 #else
-    .audio_codec = CODEC_PCMA,
+    // .audio_codec = CODEC_OPUS,
     .datachannel = DATA_CHANNEL_BINARY,
 #endif
   };
@@ -123,7 +137,13 @@ void app_main(void) {
   audio_init();
 #endif
 
+  ESP_LOGI(TAG, "Creating PeerConnection...");
   g_pc = peer_connection_create(&config);
+  if (!g_pc) {
+    ESP_LOGE(TAG, "Failed to create PeerConnection!");
+    return;
+  }
+  ESP_LOGI(TAG, "PeerConnection created: %p", g_pc);
   peer_connection_oniceconnectionstatechange(g_pc, oniceconnectionstatechange);
   peer_connection_ondatachannel(g_pc, onmessage, onopen, onclose);
 
@@ -133,19 +153,22 @@ void app_main(void) {
 #if defined(CONFIG_WHIP_URL)
   service_config.http_url = CONFIG_WHIP_URL;
   service_config.http_port = CONFIG_WHIP_PORT;
-  service_config.bearer_token = CONFIG_WHIP_BEARER_TOKEN;
+ // service_config.bearer_token = CONFIG_WHIP_BEARER_TOKEN;
 #else
   service_config.client_id = deviceid;
   service_config.mqtt_url = "broker.emqx.io";
 #endif
-
+  
+  ESP_LOGI(TAG, "Setting up signaling...");
   peer_signaling_set_config(&service_config);
+
 
 #if defined(CONFIG_WHIP_URL)
   peer_signaling_whip_connect();
+  ESP_LOGI(TAG, "Peer signaling configuration set (WHIP)");
 #else
   peer_signaling_join_channel();
-  ESP_LOGI(TAG, "open https://sepfy.github.io/webrtc?deviceId=%s", deviceid);
+  ESP_LOGI(TAG, "Peer signaling configuration set (MQTT)");
 #endif
 
 #if defined(CONFIG_ESP32S3_XIAO_SENSE)
@@ -159,6 +182,8 @@ void app_main(void) {
   xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
 
   xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 8192, NULL, 5, &xPcTaskHandle, 1);
+
+  ESP_LOGI(TAG, "Starting camera and peer connection tasks...");
 
   ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
   ESP_LOGI(TAG, "open https://sepfy.github.io/webrtc?deviceId=%s", deviceid);

@@ -1,19 +1,21 @@
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <net/if.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <string.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <sys/types.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <string.h>
+#include <sys/types.h>
+#include <errno.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+#include <netdb.h>
 
-#include "socket.h"
 #include "utils.h"
+#include "socket.h"
 
-int udp_socket_add_multicast_group(UdpSocket* udp_socket, Address* mcast_addr) {
+
+int udp_socket_add_multicast_group(UdpSocket *udp_socket, Address *mcast_addr) {
+
   int ret = 0;
   struct ip_mreq imreq = {0};
   struct in_addr iaddr = {0};
@@ -35,10 +37,11 @@ int udp_socket_add_multicast_group(UdpSocket* udp_socket, Address* mcast_addr) {
   return 0;
 }
 
-int udp_socket_open(UdpSocket* udp_socket, int family, int port) {
+int udp_socket_open(UdpSocket *udp_socket, int family, int port) {
+
   int ret;
   int reuse = 1;
-  struct sockaddr* sa;
+  struct sockaddr *sa;
   socklen_t sock_len;
 
   udp_socket->bind_addr.family = family;
@@ -49,7 +52,7 @@ int udp_socket_open(UdpSocket* udp_socket, int family, int port) {
       udp_socket->bind_addr.sin6.sin6_port = htons(port);
       udp_socket->bind_addr.sin6.sin6_addr = in6addr_any;
       udp_socket->bind_addr.port = ntohs(udp_socket->bind_addr.sin6.sin6_port);
-      sa = (struct sockaddr*)&udp_socket->bind_addr.sin6;
+      sa = (struct sockaddr *)&udp_socket->bind_addr.sin6;
       sock_len = sizeof(struct sockaddr_in6);
       break;
     case AF_INET:
@@ -58,7 +61,7 @@ int udp_socket_open(UdpSocket* udp_socket, int family, int port) {
       udp_socket->bind_addr.sin.sin_family = AF_INET;
       udp_socket->bind_addr.sin.sin_port = htons(port);
       udp_socket->bind_addr.sin.sin_addr.s_addr = htonl(INADDR_ANY);
-      sa = (struct sockaddr*)&udp_socket->bind_addr.sin;
+      sa = (struct sockaddr *)&udp_socket->bind_addr.sin;
       sock_len = sizeof(struct sockaddr_in);
       break;
   }
@@ -98,19 +101,21 @@ int udp_socket_open(UdpSocket* udp_socket, int family, int port) {
     default:
       udp_socket->bind_addr.port = ntohs(udp_socket->bind_addr.sin.sin_port);
       break;
-  }
+  }   
 
   return 0;
 }
 
-void udp_socket_close(UdpSocket* udp_socket) {
+void udp_socket_close(UdpSocket *udp_socket) {
+
   if (udp_socket->fd > 0) {
     close(udp_socket->fd);
   }
 }
 
-int udp_socket_sendto(UdpSocket* udp_socket, Address* addr, const uint8_t* buf, int len) {
-  struct sockaddr* sa;
+int udp_socket_sendto(UdpSocket *udp_socket, Address *addr, const uint8_t *buf, int len) {
+
+  struct sockaddr *sa;
   socklen_t sock_len;
   int ret = -1;
 
@@ -119,16 +124,20 @@ int udp_socket_sendto(UdpSocket* udp_socket, Address* addr, const uint8_t* buf, 
     return -1;
   }
 
+  // LOGI( "JAY Sending to %x:%d", addr_to_string(addr, NULL, 0), addr->port);
+  char addr_str[64];
+  addr_to_string(addr, addr_str, sizeof(addr_str));
+  LOGI("JAY Sending to %s:%d", addr_str, addr->port);
   switch (addr->family) {
     case AF_INET6:
       addr->sin6.sin6_family = AF_INET6;
-      sa = (struct sockaddr*)&addr->sin6;
+      sa = (struct sockaddr *)&addr->sin6;
       sock_len = sizeof(struct sockaddr_in6);
       break;
     case AF_INET:
     default:
       addr->sin.sin_family = AF_INET;
-      sa = (struct sockaddr*)&addr->sin;
+      sa = (struct sockaddr *)&addr->sin;
       sock_len = sizeof(struct sockaddr_in);
       break;
   }
@@ -141,28 +150,29 @@ int udp_socket_sendto(UdpSocket* udp_socket, Address* addr, const uint8_t* buf, 
   return ret;
 }
 
-int udp_socket_recvfrom(UdpSocket* udp_socket, Address* addr, uint8_t* buf, int len) {
+int udp_socket_recvfrom(UdpSocket *udp_socket, Address *addr, uint8_t *buf, int len) {
+
   struct sockaddr_in6 sin6;
   struct sockaddr_in sin;
-  struct sockaddr* sa;
+  struct sockaddr *sa;
   socklen_t sock_len;
   int ret;
 
   if (udp_socket->fd < 0) {
     LOGE("recvfrom before socket init");
-    return -1;
+    return -1; 
   }
 
   switch (udp_socket->bind_addr.family) {
     case AF_INET6:
       sin6.sin6_family = AF_INET6;
-      sa = (struct sockaddr*)&sin6;
+      sa = (struct sockaddr *)&sin6;
       sock_len = sizeof(struct sockaddr_in6);
       break;
     case AF_INET:
     default:
       sin.sin_family = AF_INET;
-      sa = (struct sockaddr*)&sin;
+      sa = (struct sockaddr *)&sin;
       sock_len = sizeof(struct sockaddr_in);
       break;
   }
@@ -176,22 +186,23 @@ int udp_socket_recvfrom(UdpSocket* udp_socket, Address* addr, uint8_t* buf, int 
     switch (udp_socket->bind_addr.family) {
       case AF_INET6:
         addr->family = AF_INET6;
-        addr->port = htons(sin6.sin6_port);
+        addr->port = htons(addr->sin6.sin6_port);
         memcpy(&addr->sin6, &sin6, sizeof(struct sockaddr_in6));
-        break;
-      case AF_INET:
-      default:
+      break;
+    case AF_INET:
+    default:
         addr->family = AF_INET;
-        addr->port = htons(sin.sin_port);
+        addr->port = htons(addr->sin.sin_port);
         memcpy(&addr->sin, &sin, sizeof(struct sockaddr_in));
-        break;
+      break;
     }
   }
 
   return ret;
 }
 
-int tcp_socket_open(TcpSocket* tcp_socket, int family) {
+int tcp_socket_open(TcpSocket *tcp_socket, int family) {
+
   tcp_socket->bind_addr.family = family;
   switch (family) {
     case AF_INET6:
@@ -210,10 +221,11 @@ int tcp_socket_open(TcpSocket* tcp_socket, int family) {
   return 0;
 }
 
-int tcp_socket_connect(TcpSocket* tcp_socket, Address* addr) {
+int tcp_socket_connect(TcpSocket *tcp_socket, Address *addr) {
+
   char addr_string[ADDRSTRLEN];
   int ret;
-  struct sockaddr* sa;
+  struct sockaddr *sa;
   socklen_t sock_len;
 
   if (tcp_socket->fd < 0) {
@@ -224,18 +236,19 @@ int tcp_socket_connect(TcpSocket* tcp_socket, Address* addr) {
   switch (addr->family) {
     case AF_INET6:
       addr->sin6.sin6_family = AF_INET6;
-      sa = (struct sockaddr*)&addr->sin6;
+      sa = (struct sockaddr *)&addr->sin6;
       sock_len = sizeof(struct sockaddr_in6);
       break;
     case AF_INET:
     default:
       addr->sin.sin_family = AF_INET;
-      sa = (struct sockaddr*)&addr->sin;
+      sa = (struct sockaddr *)&addr->sin;
       sock_len = sizeof(struct sockaddr_in);
       break;
   }
 
   addr_to_string(addr, addr_string, sizeof(addr_string));
+  LOGI("Connecting to server1 : %s:%d", addr_string, addr->port);
   LOGI("Connecting to server: %s:%d", addr_string, addr->port);
   if ((ret = connect(tcp_socket->fd, sa, sock_len)) < 0) {
     LOGE("Failed to connect to server");
@@ -246,40 +259,80 @@ int tcp_socket_connect(TcpSocket* tcp_socket, Address* addr) {
   return 0;
 }
 
-void tcp_socket_close(TcpSocket* tcp_socket) {
+void tcp_socket_close(TcpSocket *tcp_socket) {
+
   if (tcp_socket->fd > 0) {
     close(tcp_socket->fd);
   }
 }
 
-int tcp_socket_send(TcpSocket* tcp_socket, const uint8_t* buf, int len) {
-  int ret;
+int tcp_socket_send(TcpSocket *tcp_socket, const uint8_t *buf, int len) {
+
+  fd_set write_set;
+  struct timeval tv;
+  int ret = -1;
 
   if (tcp_socket->fd < 0) {
+
     LOGE("sendto before socket init");
     return -1;
   }
 
-  ret = send(tcp_socket->fd, buf, len, 0);
-  if (ret < 0) {
-    LOGE("Failed to send: %s", strerror(errno));
+  FD_ZERO(&write_set);
+  FD_SET(tcp_socket->fd, &write_set);
+
+  tv.tv_sec = 0;
+  tv.tv_usec = 500000;
+
+  if ((ret = select(tcp_socket->fd + 1, NULL, &write_set, NULL, &tv)) < 0) {
+
+    LOGE("Failed to select: %s", strerror(errno));
     return -1;
   }
+
+  if (FD_ISSET(tcp_socket->fd, &write_set)) {
+
+    ret = send(tcp_socket->fd, buf, len, 0);
+    if (ret < 0) {
+      LOGE("Failed to send: %s", strerror(errno));
+      return -1;
+    }
+  }
+
   return ret;
 }
 
-int tcp_socket_recv(TcpSocket* tcp_socket, uint8_t* buf, int len) {
+int tcp_socket_recv(TcpSocket *tcp_socket, uint8_t *buf, int len) {
+
+  fd_set read_set;
+  struct timeval tv;
   int ret;
 
   if (tcp_socket->fd < 0) {
+
     LOGE("recvfrom before socket init");
     return -1;
   }
 
-  ret = recv(tcp_socket->fd, buf, len, 0);
-  if (ret < 0) {
-    LOGE("Failed to recv: %s", strerror(errno));
+  FD_ZERO(&read_set);
+  FD_SET(tcp_socket->fd, &read_set);
+  tv.tv_sec = 0;
+  tv.tv_usec = 500000;
+
+  if ((ret = select(tcp_socket->fd + 1, &read_set, NULL, NULL, &tv)) < 0) {
+
+    LOGE("Failed to select: %s", strerror(errno));
     return -1;
   }
+
+  if (FD_ISSET(tcp_socket->fd, &read_set)) {
+
+    ret = recv(tcp_socket->fd, buf, len, 0);
+    if (ret < 0) {
+      LOGE("Failed to recv: %s", strerror(errno));
+      return -1;
+    }
+  }
+
   return ret;
 }
