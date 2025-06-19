@@ -1,7 +1,7 @@
 #ifndef SCTP_H_
 #define SCTP_H_
 
-#include "buffer.h"
+
 #include "config.h"
 #include "dtls_srtp.h"
 #include "utils.h"
@@ -141,8 +141,7 @@ typedef struct Sctp {
   int connected;
   uint32_t verification_tag;
   uint32_t tsn;
-  DtlsSrtp* dtls_srtp;
-  Buffer** data_rb;
+  DtlsSrtp* dtls_srtp; 
   int stream_count;
   SctpStreamEntry stream_table[SCTP_MAX_STREAMS];
 

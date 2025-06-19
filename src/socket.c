@@ -9,7 +9,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
-
+#include <esp_log.h>
 #include "socket.h"
 #include "utils.h"
 
@@ -132,7 +132,9 @@ int udp_socket_sendto(UdpSocket* udp_socket, Address* addr, const uint8_t* buf, 
       sock_len = sizeof(struct sockaddr_in);
       break;
   }
+  //log
 
+  //LOGI("buffer: %s,  length: %d", buf, len);
   if ((ret = sendto(udp_socket->fd, buf, len, 0, sa, sock_len)) < 0) {
     LOGE("Failed to sendto: %s", strerror(errno));
     return -1;

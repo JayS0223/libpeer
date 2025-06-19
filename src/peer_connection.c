@@ -4,7 +4,7 @@
 #include <unistd.h>
 
 #include "agent.h"
-#include "buffer.h"
+
 #include "config.h"
 #include "dtls_srtp.h"
 #include "peer_connection.h"
@@ -40,9 +40,7 @@ struct PeerConnection {
   int agent_ret;
   int b_local_description_created;
 
-  Buffer* audio_rb;
-  Buffer* video_rb;
-  Buffer* data_rb;
+
 
   RtpEncoder artp_encoder;
   RtpEncoder vrtp_encoder;
@@ -171,14 +169,7 @@ PeerConnection* peer_connection_create(PeerConfiguration* config) {
 
   memset(&pc->sctp, 0, sizeof(pc->sctp));
 
-  if (pc->config.datachannel) {
-    LOGI("Datachannel allocates heap size: %d", DATA_RB_DATA_LENGTH);
-    pc->data_rb = buffer_new(DATA_RB_DATA_LENGTH);
-  }
-
   if (pc->config.audio_codec) {
-    LOGI("Audio allocates heap size: %d", AUDIO_RB_DATA_LENGTH);
-    pc->audio_rb = buffer_new(AUDIO_RB_DATA_LENGTH);
 
     rtp_encoder_init(&pc->artp_encoder, pc->config.audio_codec,
                      peer_connection_outgoing_rtp_packet, (void*)pc);
@@ -188,8 +179,7 @@ PeerConnection* peer_connection_create(PeerConfiguration* config) {
   }
 
   if (pc->config.video_codec) {
-    LOGI("Video allocates heap size: %d", VIDEO_RB_DATA_LENGTH);
-    pc->video_rb = buffer_new(VIDEO_RB_DATA_LENGTH);
+
 
     rtp_encoder_init(&pc->vrtp_encoder, pc->config.video_codec,
                      peer_connection_outgoing_rtp_packet, (void*)pc);
@@ -204,9 +194,6 @@ PeerConnection* peer_connection_create(PeerConfiguration* config) {
 void peer_connection_destroy(PeerConnection* pc) {
   if (pc) {
     agent_destroy(&pc->agent);
-    buffer_free(pc->data_rb);
-    buffer_free(pc->audio_rb);
-    buffer_free(pc->video_rb);
 
     free(pc);
     pc = NULL;
@@ -218,12 +205,13 @@ void peer_connection_close(PeerConnection* pc) {
 }
 
 int peer_connection_send_audio(PeerConnection* pc, const uint8_t* buf, size_t len) {
+  
   if (pc->state != PEER_CONNECTION_COMPLETED) {
     // LOGE("dtls_srtp not connected");
     return -1;
   }
 
-  return buffer_push_tail(pc->audio_rb, buf, len);
+    return rtp_encoder_encode(&pc->artp_encoder, buf, len);
 }
 
 int peer_connection_send_video(PeerConnection* pc, const uint8_t* buf, size_t len) {
@@ -232,7 +220,7 @@ int peer_connection_send_video(PeerConnection* pc, const uint8_t* buf, size_t le
     return -1;
   }
 
-  return buffer_push_tail(pc->video_rb, buf, len);
+   return rtp_encoder_encode(&pc->vrtp_encoder, buf, len);
 }
 
 int peer_connection_datachannel_send(PeerConnection* pc, char* message, size_t len) {
@@ -340,8 +328,7 @@ static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int
 }
 
 int peer_connection_loop(PeerConnection* pc) {
-  int bytes;
-  uint8_t* data = NULL;
+
   uint32_t ssrc = 0;
   memset(pc->agent_buf, 0, sizeof(pc->agent_buf));
   pc->agent_ret = -1;
@@ -378,26 +365,26 @@ int peer_connection_loop(PeerConnection* pc) {
       break;
     case PEER_CONNECTION_COMPLETED:
 
-      data = buffer_peak_head(pc->video_rb, &bytes);
-      if (data) {
-        rtp_encoder_encode(&pc->vrtp_encoder, data, bytes);
-        buffer_pop_head(pc->video_rb);
-      }
+      // data = buffer_peak_head(pc->video_rb, &bytes);
+      // if (data) {
+      //   rtp_encoder_encode(&pc->vrtp_encoder, data, bytes);
+      //   buffer_pop_head(pc->video_rb);
+      // }
 
-      data = buffer_peak_head(pc->audio_rb, &bytes);
-      if (data) {
-        rtp_encoder_encode(&pc->artp_encoder, data, bytes);
-        buffer_pop_head(pc->audio_rb);
-      }
+      // data = buffer_peak_head(pc->audio_rb, &bytes);
+      // if (data) {
+      //   rtp_encoder_encode(&pc->artp_encoder, data, bytes);
+      //   buffer_pop_head(pc->audio_rb);
+      // }
 
-      data = buffer_peak_head(pc->data_rb, &bytes);
-      if (data) {
-        if (pc->config.datachannel == DATA_CHANNEL_STRING)
-          sctp_outgoing_data(&pc->sctp, (char*)data, bytes, PPID_STRING, 0);
-        else
-          sctp_outgoing_data(&pc->sctp, (char*)data, bytes, PPID_BINARY, 0);
-        buffer_pop_head(pc->data_rb);
-      }
+      // data = buffer_peak_head(pc->data_rb, &bytes);
+      // if (data) {
+      //   if (pc->config.datachannel == DATA_CHANNEL_STRING)
+      //     sctp_outgoing_data(&pc->sctp, (char*)data, bytes, PPID_STRING, 0);
+      //   else
+      //     sctp_outgoing_data(&pc->sctp, (char*)data, bytes, PPID_BINARY, 0);
+      //   buffer_pop_head(pc->data_rb);
+      // }
 
       if ((pc->agent_ret = agent_recv(&pc->agent, pc->agent_buf, sizeof(pc->agent_buf))) > 0) {
         LOGD("agent_recv %d", pc->agent_ret);

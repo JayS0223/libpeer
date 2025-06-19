@@ -42,15 +42,39 @@ int64_t get_timestamp() {
   return (tv.tv_sec * 1000LL + (tv.tv_usec / 1000LL));
 }
 
+// static void oniceconnectionstatechange(PeerConnectionState state, void* user_data) {
+//   ESP_LOGI(TAG, "PeerConnectionState: %d", state);
+//   eState = state;
+//   // not support datachannel close event
+//   if (eState != PEER_CONNECTION_COMPLETED) {
+//     gDataChannelOpened = 0;
+//   }
+// }
 static void oniceconnectionstatechange(PeerConnectionState state, void* user_data) {
-  ESP_LOGI(TAG, "PeerConnectionState: %d", state);
+  ESP_LOGI(TAG, "PeerConnectionState changed: %d (%s)", state, peer_connection_state_to_string(state));
   eState = state;
-  // not support datachannel close event
-  if (eState != PEER_CONNECTION_COMPLETED) {
-    gDataChannelOpened = 0;
+
+  // if (on_connection_state_changed_cb) {
+  //   on_connection_state_changed_cb(state);  // Invoke the user-defined callback
+  // }
+
+  switch (state) {
+    case PEER_CONNECTION_CONNECTED:
+      ESP_LOGI(TAG, "DTLS handshake completed, connection is now CONNECTED");
+      break;
+    case PEER_CONNECTION_COMPLETED:
+      ESP_LOGI(TAG, "ICE and DTLS completed, connection is now COMPLETED");
+      break;
+    case PEER_CONNECTION_FAILED:
+      ESP_LOGE(TAG, "PeerConnection FAILED");
+      break;
+    case PEER_CONNECTION_CLOSED:
+      ESP_LOGW(TAG, "PeerConnection CLOSED");
+      break;
+    default:
+      break;
   }
 }
-
 static void onmessage(char* msg, size_t len, void* userdata, uint16_t sid) {
   ESP_LOGI(TAG, "Datachannel message: %.*s", len, msg);
 }
@@ -84,9 +108,10 @@ void app_main(void) {
     .ice_servers = {
         {.urls = "stun:stun.l.google.com:19302"}},
 #if defined(CONFIG_WHIP_URL)
-    .video_codec = CODEC_H264,
+   // .video_codec = CODEC_H264,
+   .audio_codec = CODEC_PCMA,
 #else
-    .audio_codec = CODEC_PCMA,
+    
     .datachannel = DATA_CHANNEL_BINARY,
 #endif
   };
@@ -133,7 +158,7 @@ void app_main(void) {
 #if defined(CONFIG_WHIP_URL)
   service_config.http_url = CONFIG_WHIP_URL;
   service_config.http_port = CONFIG_WHIP_PORT;
-  service_config.bearer_token = CONFIG_WHIP_BEARER_TOKEN;
+  //service_config.bearer_token = CONFIG_WHIP_BEARER_TOKEN;
 #else
   service_config.client_id = deviceid;
   service_config.mqtt_url = "broker.emqx.io";
@@ -152,11 +177,11 @@ void app_main(void) {
   StackType_t* stack_memory = (StackType_t*)heap_caps_malloc(8192 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   StaticTask_t task_buffer;
   if (stack_memory) {
-    xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 8192, NULL, 7, stack_memory, &task_buffer, 0);
+    xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 8192, NULL, 9, stack_memory, &task_buffer, 0);
   }
 #endif
 
-  xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
+ // xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
 
   xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 8192, NULL, 5, &xPcTaskHandle, 1);
 

@@ -246,7 +246,26 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
   TransportInterface_t trans_if = {0};
   NetworkContext_t net_ctx;
   HTTPResponse_t res;
-
+  LOGI("Sending offer %s", body);
+  char * sdp_offer = "v=0\n"
+"o=- 1495799811084970 1495799811084970 IN IP4 0.0.0.0\n"
+"s=-\n"
+"t=0 0\n"
+"a=msid-semantic: iot\n"
+"a=group:BUNDLE audio\n"
+"m=audio 9 UDP/TLS/RTP/SAVP 8\n"
+"a=rtpmap:8 PCMA/8000\n"
+"a=ssrc:4 cname:webrtc-pcma\n"
+"a=sendrecv\n"
+"a=mid:audio\n"
+"c=IN IP4 0.0.0.0\n"
+"a=rtcp-mux\n"
+"a=fingerprint:sha-256 64:30:2B:AB:7B:40:31:CB:6C:3F:B6:64:92:B3:4B:FB:D4:AA:B4:3E:71:D6:21:BF:89:A8:8D:F1:AC:18:71:0D\n"
+"a=setup:passive\n"
+"a=ice-ufrag:ZDXN\n"
+"a=ice-pwd:ZDXNo1fRzbX5ftIe5iKC26zr\n"
+"a=candidate:1 1 UDP 2127635967 192.168.207.221 53541 typ host\n"
+"a=candidate:2 1 UDP 1691428351 152.59.35.154 53541 typ srflx raddr 0.0.0.0 rport 0\n";
   trans_if.recv = ssl_transport_recv;
   trans_if.send = ssl_transport_send;
   trans_if.pNetworkContext = &net_ctx;

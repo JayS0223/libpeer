@@ -14,7 +14,10 @@
 #include "utils.h"
 
 #define SSL_RECV_TIMEOUT 1000
-
+static void mbedtls_debug(void *ctx, int level, const char *file, int line, const char *str) {
+    ((void) level);
+    fprintf((FILE *) ctx, "%s:%04d: %s", file, line, str);
+}
 static int ssl_transport_mbedtls_recv_timeout(void* ctx, unsigned char* buf, size_t len, uint32_t timeout) {
   int ret;
   fd_set read_fds;
@@ -28,9 +31,15 @@ static int ssl_transport_mbedtls_recv_timeout(void* ctx, unsigned char* buf, siz
   ret = select(((TcpSocket*)ctx)->fd + 1, &read_fds, NULL, NULL, &tv);
   if (ret < 0) {
     return -1;
-  } else if (ret == 0) {
-    return MBEDTLS_ERR_SSL_TIMEOUT;
+  }   else if (ret == 0) {
+    // timeout
+  } else {
+    if (FD_ISSET(((TcpSocket*)ctx)->fd, &read_fds)) {
+      ret = tcp_socket_recv((TcpSocket*)ctx, buf, len);
+    }
   }
+
+  return ret;
 
   return tcp_socket_recv((TcpSocket*)ctx, buf, len);
 }
@@ -75,7 +84,8 @@ int ssl_transport_connect(NetworkContext_t* net_ctx,
   }
   mbedtls_ssl_conf_ca_chain(&net_ctx->conf, &net_ctx->cacert, NULL);
   */
-
+mbedtls_debug_set_threshold(4);
+mbedtls_ssl_conf_dbg(&net_ctx->conf, mbedtls_debug, stdout);  // You must define `mbedtls_debug` (see below)
   mbedtls_ssl_conf_rng(&net_ctx->conf, mbedtls_ctr_drbg_random, &net_ctx->ctr_drbg);
 
   if ((ret = mbedtls_ssl_setup(&net_ctx->ssl, &net_ctx->conf)) != 0) {
@@ -87,9 +97,10 @@ int ssl_transport_connect(NetworkContext_t* net_ctx,
     LOGE("ssl set hostname error: -0x%x", (unsigned int)-ret);
     return -1;
   }
-
+LOGI("ssl set hostname success: %s", host);
   memset(&resolved_addr, 0, sizeof(resolved_addr));
   tcp_socket_open(&net_ctx->tcp_socket, AF_INET);
+
   ports_resolve_addr(host, &resolved_addr);
   addr_set_port(&resolved_addr, port);
   if ((ret = tcp_socket_connect(&net_ctx->tcp_socket, &resolved_addr) < 0)) {

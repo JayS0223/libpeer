@@ -139,3 +139,10 @@ uint32_t ports_get_epoch_time() {
   gettimeofday(&tv, NULL);
   return (uint32_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
+void ports_sleep_ms(int ms) {
+#if CONFIG_USE_LWIP
+  sys_msleep(ms);
+#else
+  usleep(ms * 1000);
+#endif
+}
