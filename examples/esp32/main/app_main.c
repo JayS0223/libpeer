@@ -8,7 +8,6 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
-#include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
 #include "esp_tls.h"
@@ -16,20 +15,22 @@
 #include "mdns.h"
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
-
 #include "peer.h"
+#include "bsp_board.h"
 
 static const char* TAG = "webrtc";
 
 static TaskHandle_t xPcTaskHandle = NULL;
 static TaskHandle_t xCameraTaskHandle = NULL;
 static TaskHandle_t xAudioTaskHandle = NULL;
-
+extern  esp_err_t bsp_board_init(uint32_t sample_rate, int channel_format, int bits_per_chan);
 extern esp_err_t camera_init();
 extern esp_err_t audio_init();
 extern void camera_task(void* pvParameters);
 extern void audio_task(void* pvParameters);
+//extern void init_board();
 
+extern void i2c_scan();
 SemaphoreHandle_t xSemaphore = NULL;
 
 PeerConnection* g_pc;
@@ -109,7 +110,7 @@ void app_main(void) {
         {.urls = "stun:stun.l.google.com:19302"}},
 #if defined(CONFIG_WHIP_URL)
    // .video_codec = CODEC_H264,
-   .audio_codec = CODEC_PCMA,
+   .audio_codec = CODEC_OPUS,
 #else
     
     .datachannel = DATA_CHANNEL_BINARY,
@@ -141,12 +142,10 @@ void app_main(void) {
   xSemaphore = xSemaphoreCreateMutex();
 
   peer_init();
-
-  camera_init();
-
-#if defined(CONFIG_ESP32S3_XIAO_SENSE)
   audio_init();
-#endif
+  //audio_codec_init();
+  ///camera_init();
+
 
   g_pc = peer_connection_create(&config);
   peer_connection_oniceconnectionstatechange(g_pc, oniceconnectionstatechange);
@@ -177,13 +176,14 @@ void app_main(void) {
   StackType_t* stack_memory = (StackType_t*)heap_caps_malloc(8192 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   StaticTask_t task_buffer;
   if (stack_memory) {
-    xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 8192, NULL, 9, stack_memory, &task_buffer, 0);
+ xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 8192, NULL, 9, stack_memory, &task_buffer, 0);
   }
 #endif
 
  // xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
 
   xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 8192, NULL, 5, &xPcTaskHandle, 1);
+
 
   ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
   ESP_LOGI(TAG, "open https://sepfy.github.io/webrtc?deviceId=%s", deviceid);
@@ -193,3 +193,6 @@ void app_main(void) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
+
+
+

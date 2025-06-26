@@ -1,16 +1,14 @@
 ## IDF Component Manager Manifest File
 dependencies:
-  sepfy/libpeer: 
-    path: ../../../
-  espressif/esp_audio_codec: "^2.0.0"
-  espressif/esp_codec_dev: 1.1.0
-  mdns: "*"
-  espressif/es8311: "*"
-  protocol_examples_common:
-    path: ${IDF_PATH}/examples/common_components/protocol_examples_common
-    ## Required IDF version
+  es7210:
+    version: "^1.0.0"
+
+  esp_codec_dev:
+    version: ">=1.0.1"
+
+  ## Required IDF version
   idf:
-    version: ">=4.1.0"
+    version: ">=4.4.0"
   # # Put list of dependencies here
   # # For components maintained by Espressif:
   # component: "~1.0.0"

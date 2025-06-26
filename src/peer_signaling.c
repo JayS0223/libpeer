@@ -278,7 +278,7 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
   ret = ssl_transport_connect(&net_ctx, hostname, port, NULL);
 
   if (ret < 0) {
-    LOGE("Failed to connect to %s:%d", hostname, port);
+    LOGE("Failed to connect to %s:%d : %d", hostname, port,ret);
     return ret;
   }
 
