@@ -16,21 +16,36 @@
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
 #include "peer.h"
-#include "bsp_board.h"
-
-static const char* TAG = "webrtc";
+//#include "bsp_board.h"
+//#include "esp_spiffs.h"
+#include "board.c"
+#include "media_lib_adapter.h"
+#include "media_lib_os.h"
+#include "codec_board.h"
+//static const char* TAG = "webrtc";
 
 static TaskHandle_t xPcTaskHandle = NULL;
 static TaskHandle_t xCameraTaskHandle = NULL;
 static TaskHandle_t xAudioTaskHandle = NULL;
 extern  esp_err_t bsp_board_init(uint32_t sample_rate, int channel_format, int bits_per_chan);
 extern esp_err_t camera_init();
-extern esp_err_t audio_init();
+extern esp_err_t audio_codec_init();
+extern void audio_playback_task(void* pvParameters);
 extern void camera_task(void* pvParameters);
-extern void audio_task(void* pvParameters);
-//extern void init_board();
+// extern void audio_task(void* pvParameters);
+extern void audio_receive_g711a_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
+extern void audio_decode_init();
+extern void audio_av_render_init();
 
-extern void i2c_scan();
+//extern void init_board();
+#define RUN_ASYNC(name, body)           \
+    void run_async##name(void *arg)     \
+    {                                   \
+        body;                           \
+        media_lib_thread_destroy(NULL); \
+    }                                   \
+    media_lib_thread_create_from_scheduler(NULL, #name, run_async##name, NULL);
+
 SemaphoreHandle_t xSemaphore = NULL;
 
 PeerConnection* g_pc;
@@ -85,6 +100,7 @@ void onopen(void* userdata) {
   gDataChannelOpened = 1;
 }
 
+
 static void onclose(void* userdata) {
 }
 
@@ -100,6 +116,49 @@ void peer_connection_task(void* arg) {
     vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
+static void thread_scheduler(const char *thread_name, media_lib_thread_cfg_t *thread_cfg)
+{
+    if (strcmp(thread_name, "pc_task") == 0) {
+        thread_cfg->stack_size = 25 * 1024;
+        thread_cfg->priority = 18;
+        thread_cfg->core_id = 1;
+    }
+    if (strcmp(thread_name, "start") == 0) {
+        thread_cfg->stack_size = 6 * 1024;
+    }
+    if (strcmp(thread_name, "pc_send") == 0) {
+        thread_cfg->stack_size = 4 * 1024;
+        thread_cfg->priority = 15;
+        thread_cfg->core_id = 1;
+    }
+    if (strcmp(thread_name, "Adec") == 0) {
+        thread_cfg->stack_size = 40 * 1024;
+        thread_cfg->priority = 10;
+        thread_cfg->core_id = 1;
+    }
+    if (strcmp(thread_name, "venc") == 0) {
+        thread_cfg->stack_size = 20 * 1024;
+        thread_cfg->priority = 10;
+    }
+#ifdef WEBRTC_SUPPORT_OPUS
+    if (strcmp(thread_name, "aenc") == 0) {
+        thread_cfg->stack_size = 40 * 1024;
+        thread_cfg->priority = 10;
+    }
+    if (strcmp(thread_name, "SrcRead") == 0) {
+        thread_cfg->stack_size = 40 * 1024;
+        thread_cfg->priority = 16;
+        thread_cfg->core_id = 0;
+    }
+    if (strcmp(thread_name, "buffer_in") == 0) {
+        thread_cfg->stack_size = 6 * 1024;
+        thread_cfg->priority = 10;
+        thread_cfg->core_id = 0;
+    }
+#endif
+}
+
+
 
 void app_main(void) {
   static char deviceid[32] = {0};
@@ -107,13 +166,14 @@ void app_main(void) {
 
   PeerConfiguration config = {
     .ice_servers = {
-        {.urls = "stun:stun.l.google.com:19302"}},
+        {.urls = "in1.turn.videosdk.live:3478",
+          .username = "trlxuNeZ4c5stlbod3ic",
+            .credential = "videosdk"}},
 #if defined(CONFIG_WHIP_URL)
    // .video_codec = CODEC_H264,
-   .audio_codec = CODEC_OPUS,
-#else
-    
-    .datachannel = DATA_CHANNEL_BINARY,
+   .audio_codec = CODEC_PCMA,
+   .onaudiotrack = audio_receive_g711a_and_render,
+
 #endif
   };
 
@@ -140,9 +200,13 @@ void app_main(void) {
   }
 
   xSemaphore = xSemaphoreCreateMutex();
-
+  media_lib_add_default_adapter(); 
   peer_init();
-  audio_init();
+  media_lib_thread_set_schedule_cb(thread_scheduler);
+  init_board();
+  audio_av_render_init();
+  // audio_codec_init();
+  //audio_decode_init();
   //audio_codec_init();
   ///camera_init();
 
@@ -176,20 +240,20 @@ void app_main(void) {
   StackType_t* stack_memory = (StackType_t*)heap_caps_malloc(8192 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   StaticTask_t task_buffer;
   if (stack_memory) {
- xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 8192, NULL, 9, stack_memory, &task_buffer, 0);
+   //  xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 8192, NULL, 9, stack_memory, &task_buffer, 0);
   }
 #endif
 
+ //xTaskCreatePinnedToCore(audio_playback_task, "audio_playback_task", 4096, NULL, 5, NULL, 1);
  // xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
 
   xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 8192, NULL, 5, &xPcTaskHandle, 1);
-
 
   ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
   ESP_LOGI(TAG, "open https://sepfy.github.io/webrtc?deviceId=%s", deviceid);
 
   while (1) {
-    peer_signaling_loop();
+    //peer_signaling_loop();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }

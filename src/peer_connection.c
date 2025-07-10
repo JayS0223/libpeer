@@ -26,7 +26,7 @@ struct PeerConnection {
   Agent agent;
   DtlsSrtp dtls_srtp;
   Sctp sctp;
-
+ time_t last_binding_request_time;
   Sdp local_sdp;
   Sdp remote_sdp;
 
@@ -240,8 +240,42 @@ int peer_connection_datachannel_send_sid(PeerConnection* pc, char* message, size
 }
 
 static char* peer_connection_dtls_role_setup_value(DtlsSrtpRole d) {
-  return d == DTLS_SRTP_ROLE_SERVER ? "a=setup:passive" : "a=setup:active";
+  return "a=setup:actpass";
 }
+void sdp_force_recvonly(Sdp* sdp) {
+  // Replace all a=sendrecv or a=sendonly with a=recvonly
+  char* p = sdp->content;
+  while ((p = strstr(p, "a=sendrecv")) || (p = strstr(p, "a=sendonly"))) {
+    memcpy(p, "a=recvonly", strlen("a=recvonly"));
+    p += strlen("a=recvonly");
+  }
+}
+
+char* create_recvonly_offer(PeerConnection* pc) {
+  memset(&pc->local_sdp, 0, sizeof(pc->local_sdp));
+
+  // Only set up the SDP with recvonly streams
+  sdp_create(&pc->local_sdp,
+             pc->config.video_codec != CODEC_NONE,
+             pc->config.audio_codec != CODEC_NONE,
+             pc->config.datachannel);
+
+  if (pc->config.video_codec == CODEC_H264) {
+    sdp_append_h264(&pc->local_sdp);
+
+    // Indicate fingerprint if DTLS is enabled
+    sdp_append(&pc->local_sdp, "a=fingerprint:sha-256 %s", pc->dtls_srtp.local_fingerprint);
+
+    // Setup attribute for DTLS role
+    sdp_append(&pc->local_sdp, "a=setup:actpass");
+  }
+
+  // Overwrite all media directions with recvonly
+  sdp_force_recvonly(&pc->local_sdp);
+
+  return pc->local_sdp.content;
+}
+
 
 static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int isOfferer) {
   char* description = (char*)pc->temp_buf;
@@ -341,10 +375,10 @@ int peer_connection_loop(PeerConnection* pc) {
       }
       break;
 
-    case PEER_CONNECTION_CHECKING:
+      case PEER_CONNECTION_CHECKING:
       if (agent_select_candidate_pair(&pc->agent) < 0) {
         STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-      } else if (agent_connectivity_check(&pc->agent) == 0) {
+      } else if (agent_connectivity_check(&pc->agent, 0) == 0) {
         STATE_CHANGED(pc, PEER_CONNECTION_CONNECTED);
       }
       break;
@@ -359,11 +393,20 @@ int peer_connection_loop(PeerConnection* pc) {
           sctp_create_socket(&pc->sctp, &pc->dtls_srtp);
           pc->sctp.userdata = pc->config.user_data;
         }
-
+        pc->last_binding_request_time = time(NULL);
         STATE_CHANGED(pc, PEER_CONNECTION_COMPLETED);
       }
       break;
     case PEER_CONNECTION_COMPLETED:
+        LOGI("PEER_CONNECTION_COMPLETED %lld" , pc->last_binding_request_time);
+        time_t current_time = time(NULL);
+        LOGI("PEER_CONNECTION_COMPLETED %lld" , current_time);
+        LOGI("PEER_CONNECTION_COMPLETED %lld" , current_time - pc->last_binding_request_time);
+        if (current_time - pc->last_binding_request_time >= 8) {
+          agent_connectivity_check(&pc->agent, 1);
+          LOGI("heartbeat sent!");
+          pc->last_binding_request_time = current_time;
+        }
 
       // data = buffer_peak_head(pc->video_rb, &bytes);
       // if (data) {

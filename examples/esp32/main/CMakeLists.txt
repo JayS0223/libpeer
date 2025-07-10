@@ -1,9 +1,7 @@
-set(requires
-    hardware_driver
-)
 
 idf_component_register(SRCS
-  "app_main.c" "camera.c" "audio.c" "settings.h" "bsp_board.h" "bsp_board.c" "esp32_s3_korvo_2_v3_board.h"
-  INCLUDE_DIRS "." REQUIRES mbedtls REQUIRES nvs_flash REQUIRES ${requires} REQUIRES esp-tls
+  "app_main.c" "camera.c" "settings.h" "board.c"
+  INCLUDE_DIRS "." REQUIRES mbedtls REQUIRES nvs_flash REQUIRES ${requires} REQUIRES esp-tls 
 )
+spiffs_create_partition_image(my_spiffs spiffs_image FLASH_IN_PROJECT "spiffs")
 target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-format")

@@ -65,7 +65,7 @@ static int rtp_encoder_encode_h264_single(RtpEncoder* rtp_encoder, uint8_t* buf,
 #endif
 
   memcpy(rtp_packet->payload, buf, size);
-  rtp_encoder->on_packet(rtp_encoder->buf, size + sizeof(RtpHeader), rtp_encoder->user_data);
+  rtp_encoder->on_packet(rtp_encoder->buf, size + sizeof(RtpHeader), rtp_encoder->user_data, rtp_encoder->timestamp);
   return 0;
 }
 
@@ -106,14 +106,14 @@ static int rtp_encoder_encode_h264_fu_a(RtpEncoder* rtp_encoder, uint8_t* buf, s
       fu_header->e = 1;
       rtp_packet->header.markerbit = 1;
       memcpy(rtp_packet->payload + sizeof(NaluHeader) + sizeof(FuHeader), buf, size);
-      rtp_encoder->on_packet(rtp_encoder->buf, size + sizeof(RtpHeader) + sizeof(NaluHeader) + sizeof(FuHeader), rtp_encoder->user_data);
+      rtp_encoder->on_packet(rtp_encoder->buf, size + sizeof(RtpHeader) + sizeof(NaluHeader) + sizeof(FuHeader), rtp_encoder->user_data, rtp_encoder->timestamp);
       break;
     }
 
     fu_header->e = 0;
 
     memcpy(rtp_packet->payload + sizeof(NaluHeader) + sizeof(FuHeader), buf, FU_PAYLOAD_SIZE);
-    rtp_encoder->on_packet(rtp_encoder->buf, CONFIG_MTU, rtp_encoder->user_data);
+    rtp_encoder->on_packet(rtp_encoder->buf, CONFIG_MTU, rtp_encoder->user_data, rtp_encoder->timestamp);
     size -= FU_PAYLOAD_SIZE;
     buf += FU_PAYLOAD_SIZE;
 
@@ -192,7 +192,7 @@ static int rtp_encoder_encode_generic(RtpEncoder* rtp_encoder, uint8_t* buf, siz
     //        rtp_header->ssrc);
     // printf("  Payload Size  : %zu bytes\n", size);
 
-  rtp_encoder->on_packet(rtp_encoder->buf, size + sizeof(RtpHeader), rtp_encoder->user_data);
+  rtp_encoder->on_packet(rtp_encoder->buf, size + sizeof(RtpHeader), rtp_encoder->user_data, rtp_encoder->timestamp);
 
   return 0;
 }
@@ -239,10 +239,26 @@ int rtp_encoder_encode(RtpEncoder* rtp_encoder, const uint8_t* buf, size_t size)
 
 static int rtp_decode_generic(RtpDecoder* rtp_decoder, uint8_t* buf, size_t size) {
   RtpPacket* rtp_packet = (RtpPacket*)buf;
-  if (rtp_decoder->on_packet != NULL)
-    rtp_decoder->on_packet(rtp_packet->payload, size - sizeof(RtpHeader), rtp_decoder->user_data);
-  // even if there is no callback set, assume everything is ok for caller and do not return an error
+if (rtp_decoder->on_packet != NULL){
+    uint32_t timestamp = ntohl(rtp_packet->header.timestamp);
+    int payload_size = size - sizeof(RtpHeader);
+
+    printf("RTP packet received: type=%d, seq_number=%d, timestamp=%lu, ssrc=%lu\n",
+          rtp_packet->header.type,
+          ntohs(rtp_packet->header.seq_number),
+          timestamp,
+          (unsigned long)ntohl(rtp_packet->header.ssrc));
+
+    printf("RTP payload size: %d bytes\n", payload_size);
+    for (int i = 0; i < payload_size && i < 10; i++) {
+        printf("Payload[%d]: %02X\n", i, rtp_packet->payload[i]);
+    }
+
+    // ✅ Correct argument order
+    rtp_decoder->on_packet(rtp_packet->payload, payload_size, timestamp, rtp_decoder->user_data);
+}
   return (int)size;
+
 }
 
 void rtp_decoder_init(RtpDecoder* rtp_decoder, MediaCodec codec, RtpOnPacket on_packet, void* user_data) {
@@ -257,6 +273,7 @@ void rtp_decoder_init(RtpDecoder* rtp_decoder, MediaCodec codec, RtpOnPacket on_
     case CODEC_PCMA:
     case CODEC_PCMU:
     case CODEC_OPUS:
+      printf("RTP decoder for codec %d assigned\n", codec);
       rtp_decoder->decode_func = rtp_decode_generic;
     default:
       break;
@@ -266,5 +283,6 @@ void rtp_decoder_init(RtpDecoder* rtp_decoder, MediaCodec codec, RtpOnPacket on_
 int rtp_decoder_decode(RtpDecoder* rtp_decoder, const uint8_t* buf, size_t size) {
   if (rtp_decoder->decode_func == NULL)
     return -1;
+
   return rtp_decoder->decode_func(rtp_decoder, (uint8_t*)buf, size);
 }

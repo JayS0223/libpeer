@@ -40,12 +40,15 @@ int peer_signaling_whip_connect();
 
 void peer_signaling_whip_disconnect();
 
-int peer_signaling_join_channel();
+// int peer_signaling_join_channel();
 
-void peer_signaling_leave_channel();
+// void peer_signaling_leave_channel();
 
 int peer_signaling_loop();
 
+void audio_subscribe();
+
+void peer_signaling_send_periodic_patch();
 #ifdef __cplusplus
 }
 #endif

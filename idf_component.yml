@@ -1,6 +1,14 @@
 dependencies:
   sepfy/srtp: ^2.0.4
-  sepfy/usrsctp: ^0.9.5
+  espressif/esp_audio_codec: ~2.3.0
+  espressif/esp_video_codec: ~0.5.2
+  codec_board: 
+      path: ./components/codec_board
+  av_render:
+     path: ./components/av_render
+  render_impl:
+     path: ./components/av_render/render_impl
+  espressif/esp_audio_effects: ~1.1.0
 description: libpeer
 license: MIT
 url: https://github.com/sepfy/libpeer

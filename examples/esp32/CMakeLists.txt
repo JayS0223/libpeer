@@ -9,5 +9,6 @@ set(EXTRA_COMPONENT_DIRS
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(esp32-peer)
 
+list(APPEND EXTRA_COMPONENT_DIRS "../../components")
 # Uncomment if using usrsctp.
 #idf_build_set_property(COMPILE_OPTIONS "-DHAVE_USRSCTP" APPEND)

@@ -144,9 +144,13 @@ int32_t ssl_transport_recv(NetworkContext_t* net_ctx, void* buf, size_t len) {
 int32_t ssl_transport_send(NetworkContext_t* net_ctx, const void* buf, size_t len) {
   int ret;
 
+  LOGI("Sending %zu bytes over TLS", len);
+  LOGI("Payload: \n%.*s\n", (int)len, (char *)buf);
+
   while ((ret = mbedtls_ssl_write(&net_ctx->ssl, buf, len)) <= 0) {
     if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-      LOGE("");
+      LOGE("mbedtls_ssl_write failed: -0x%x (%d)", -ret, ret);
+      break;
     }
   }
 

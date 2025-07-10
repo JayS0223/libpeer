@@ -715,7 +715,7 @@ int dtls_srtp_init(DtlsSrtp* dtls_srtp, DtlsSrtpRole role, void* user_data) {
 
   if (dtls_srtp->role == DTLS_SRTP_ROLE_SERVER) {
     mbedtls_ssl_config_defaults(&dtls_srtp->conf,
-                                MBEDTLS_SSL_IS_SERVER,
+                                MBEDTLS_SSL_IS_CLIENT,
                                 MBEDTLS_SSL_TRANSPORT_DATAGRAM,
                                 MBEDTLS_SSL_PRESET_DEFAULT);
 
@@ -964,15 +964,23 @@ static int dtls_srtp_handshake_client(DtlsSrtp* dtls_srtp) {
 int dtls_srtp_handshake(DtlsSrtp* dtls_srtp, Address* addr) {
   int ret;
   dtls_srtp->remote_addr = addr;
-
+printf("DTLS handshake started with role %d\n", dtls_srtp->role);
   if (dtls_srtp->role == DTLS_SRTP_ROLE_SERVER) {
+
     ret = dtls_srtp_handshake_server(dtls_srtp);
+    printf("DTLS handshake server returned %d\n", ret);
+
   } else {
     ret = dtls_srtp_handshake_client(dtls_srtp);
   }
 
   const mbedtls_x509_crt* remote_crt;
+  printf("DTLS handshake returned %d\n", ret);
   if ((remote_crt = mbedtls_ssl_get_peer_cert(&dtls_srtp->ssl)) != NULL) {
+    printf("Remote certificate:\n");
+    printf("%s\n", remote_crt->raw.p);
+    printf("Remote certificate length: %d\n", remote_crt->raw.len);
+    printf("Remote fingerprint: %s\n", dtls_srtp->remote_fingerprint);
     dtls_srtp_x509_digest(remote_crt, dtls_srtp->actual_remote_fingerprint);
 
     if (strncmp(dtls_srtp->remote_fingerprint, dtls_srtp->actual_remote_fingerprint, DTLS_SRTP_FINGERPRINT_LENGTH) != 0) {

@@ -6,14 +6,20 @@ include(${CMAKE_CURRENT_LIST_DIR}/third_party/coreMQTT/mqttFilePaths.cmake)
 if (DEFINED ENV{IDF_PATH})
   file(GLOB ESP32_CODES "./src/*.c")
   idf_component_register(
-   SRCS ${ESP32_CODES} ${HTTP_SOURCES} ${MQTT_SOURCES} ${MQTT_SERIALIZER_SOURCES}
-   INCLUDE_DIRS "./src" ${HTTP_INCLUDE_PUBLIC_DIRS} ${MQTT_INCLUDE_PUBLIC_DIRS}
-   REQUIRES mbedtls srtp json esp_netif
+    SRCS ${ESP32_CODES} ${HTTP_SOURCES} ${MQTT_SOURCES} ${MQTT_SERIALIZER_SOURCES} 
+    INCLUDE_DIRS "./src" ${HTTP_INCLUDE_PUBLIC_DIRS} ${MQTT_INCLUDE_PUBLIC_DIRS}
+    REQUIRES mbedtls srtp json esp_netif fatfs vfs esp_common
+             media_lib_sal esp_timer esp_lcd 
   )
   add_definitions("-DESP32 -DHTTP_DO_NOT_USE_CUSTOM_CONFIG -DMQTT_DO_NOT_USE_CUSTOM_CONFIG")
   return()
 endif()
 
+set(EXTRA_COMPONENT_DIRS
+    ../../components
+    )
+
+list(APPEND EXTRA_COMPONENT_DIRS "../../components")    
 project(peer)
 
 option(ENABLE_TESTS "Enable tests" OFF)

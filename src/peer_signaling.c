@@ -14,6 +14,7 @@
 #include "ports.h"
 #include "ssl_transport.h"
 #include "utils.h"
+#include "peer_connection.h"
 
 #define KEEP_ALIVE_TIMEOUT_SECONDS 60
 #define CONNACK_RECV_TIMEOUT_MS 1000
@@ -54,6 +55,8 @@ typedef struct PeerSignaling {
   char subtopic[TOPIC_SIZE];
   char pubtopic[TOPIC_SIZE];
 
+             
+
   uint16_t packet_id;
   int id;
 
@@ -71,7 +74,11 @@ typedef struct PeerSignaling {
 } PeerSignaling;
 
 static PeerSignaling g_ps;
-
+static char g_patch_resource_path[256] = {0};
+static char g_patch_body[1024] = {0};
+static char g_hostname[128] = {0};
+static char g_auth[256] = {0};
+static int g_port = 443;
 static void peer_signaling_mqtt_publish(MQTTContext_t* mqtt_ctx, const char* message) {
   MQTTStatus_t status;
   MQTTPublishInfo_t pub_info;
@@ -98,7 +105,6 @@ static void peer_signaling_on_pub_event(const char* msg, size_t size) {
   int id = -1;
   char* payload = NULL;
   PeerConnectionState state;
-
   req = res = item = result = error = NULL;
   state = peer_connection_get_state(g_ps.pc);
   do {
@@ -108,23 +114,19 @@ static void peer_signaling_on_pub_event(const char* msg, size_t size) {
       LOGW("Parse json failed");
       break;
     }
-
     item = cJSON_GetObjectItem(req, "id");
     if (!item && !cJSON_IsNumber(item)) {
       error = cJSON_CreateRaw(RPC_ERROR_INVALID_REQUEST);
       LOGW("Cannot find id");
       break;
     }
-
     id = item->valueint;
-
     item = cJSON_GetObjectItem(req, "method");
     if (!item && cJSON_IsString(item)) {
       error = cJSON_CreateRaw(RPC_ERROR_INVALID_REQUEST);
       LOGW("Cannot find method");
       break;
     }
-
     if (strcmp(item->valuestring, RPC_METHOD_OFFER) == 0) {
       switch (state) {
         case PEER_CONNECTION_NEW:
@@ -145,127 +147,179 @@ static void peer_signaling_on_pub_event(const char* msg, size_t size) {
         LOGW("Cannot find params");
         break;
       }
-
-      if (state == PEER_CONNECTION_NEW) {
-        peer_connection_set_remote_description(g_ps.pc, item->valuestring);
-        result = cJSON_CreateString("");
+      // if (state == PEER_CONNECTION_NEW) {
+      //   peer_connection_set_remote_description(g_ps.pc, item->valuestring);
+      //   result = cJSON_CreateString("");
+      // }
+      switch (state) {
+        case PEER_CONNECTION_NEW:
+        case PEER_CONNECTION_DISCONNECTED:
+        case PEER_CONNECTION_FAILED:
+        case PEER_CONNECTION_CLOSED: {
+          g_ps.id = id;
+          peer_connection_set_remote_description(g_ps.pc, item->valuestring);
+        } break;
+        default: {
+          error = cJSON_CreateRaw(RPC_ERROR_INTERNAL_ERROR);
+        } break;
       }
-
     } else if (strcmp(item->valuestring, RPC_METHOD_STATE) == 0) {
       result = cJSON_CreateString(peer_connection_state_to_string(state));
-
     } else if (strcmp(item->valuestring, RPC_METHOD_CLOSE) == 0) {
       peer_connection_close(g_ps.pc);
       result = cJSON_CreateString("");
-
     } else {
       error = cJSON_CreateRaw(RPC_ERROR_METHOD_NOT_FOUND);
       LOGW("Unsupport method");
     }
-
   } while (0);
-
   if (result || error) {
     res = cJSON_CreateObject();
     cJSON_AddStringToObject(res, "jsonrpc", RPC_VERSION);
     cJSON_AddNumberToObject(res, "id", id);
-
     if (result) {
       cJSON_AddItemToObject(res, "result", result);
     } else if (error) {
       cJSON_AddItemToObject(res, "error", error);
     }
-
     payload = cJSON_PrintUnformatted(res);
-
     if (payload) {
       peer_signaling_mqtt_publish(&g_ps.mqtt_ctx, payload);
       free(payload);
     }
     cJSON_Delete(res);
   }
-
   if (req) {
     cJSON_Delete(req);
   }
 }
 
-HTTPResponse_t peer_signaling_http_request(const TransportInterface_t* transport_interface,
-                                           const char* method,
-                                           size_t method_len,
-                                           const char* host,
-                                           size_t host_len,
-                                           const char* path,
-                                           size_t path_len,
-                                           const char* auth,
-                                           size_t auth_len,
-                                           const char* body,
-                                           size_t body_len) {
-  HTTPStatus_t status = HTTPSuccess;
-  HTTPRequestInfo_t request_info = {0};
-  HTTPResponse_t response = {0};
-  HTTPRequestHeaders_t request_headers = {0};
+HTTPResponse_t peer_signaling_http_request(
+    const TransportInterface_t* transport_interface,
+    const char* method,
+    size_t method_len,
+    const char* host,
+    size_t host_len,
+    const char* path,
+    size_t path_len,
+    const char* auth,
+    size_t auth_len,
+    const char* body,
+    size_t body_len,
+    char* content_type,
+    size_t content_type_len
+) {
+    printf("HTTP Request : %.*s %.*s%.*s\n",
+           (int)method_len, method,
+           (int)host_len, host,
+           (int)path_len, path);
 
-  request_info.pMethod = method;
-  request_info.methodLen = method_len;
-  request_info.pHost = host;
-  request_info.hostLen = host_len;
-  request_info.pPath = path;
-  request_info.pathLen = path_len;
-  request_info.reqFlags = HTTP_REQUEST_KEEP_ALIVE_FLAG;
+    HTTPStatus_t status = HTTPSuccess;
+    HTTPRequestInfo_t request_info = {0};
+    HTTPResponse_t response = {0};
+    HTTPRequestHeaders_t request_headers = {0};
 
-  request_headers.pBuffer = g_ps.http_buf;
-  request_headers.bufferLen = sizeof(g_ps.http_buf);
+    request_info.pMethod = method;
+    request_info.methodLen = method_len;
+    request_info.pHost = host;
+    request_info.hostLen = host_len;
+    request_info.pPath = path;
+    request_info.pathLen = path_len;
+    request_info.reqFlags = HTTP_REQUEST_KEEP_ALIVE_FLAG;
 
-  status = HTTPClient_InitializeRequestHeaders(&request_headers, &request_info);
+    request_headers.pBuffer = g_ps.http_buf;
+    request_headers.bufferLen = sizeof(g_ps.http_buf);
 
-  if (status == HTTPSuccess) {
-    HTTPClient_AddHeader(&request_headers,
-                         "Content-Type", strlen("Content-Type"), "application/sdp", strlen("application/sdp"));
+    status = HTTPClient_InitializeRequestHeaders(&request_headers, &request_info);
+    if (status != HTTPSuccess) {
+        LOGE("Failed to initialize HTTP request headers: %s", HTTPClient_strerror(status));
+        return response;
+    }
 
-    if (auth_len > 0) {
-      HTTPClient_AddHeader(&request_headers,
-                           "Authorization", strlen("Authorization"), auth, auth_len);
+    // Add required headers
+    HTTPClient_AddHeader(&request_headers, "Content-Type", strlen("Content-Type"),
+                         content_type, content_type_len);
+
+    HTTPClient_AddHeader(&request_headers, "User-Agent", strlen("User-Agent"),
+                         "esp32-whip-client", strlen("esp32-whip-client"));
+
+    HTTPClient_AddHeader(&request_headers, "Accept", strlen("Accept"),
+                         "*/*", strlen("*/*"));
+
+    if (auth && auth_len > 0) {
+        HTTPClient_AddHeader(&request_headers, "Authorization", strlen("Authorization"),
+                             auth, auth_len);
     }
 
     response.pBuffer = g_ps.http_buf;
     response.bufferLen = sizeof(g_ps.http_buf);
+    printf("Actual Body Length: %zu\n", strlen(body));
+    printf("Configured Body Length: %zu\n", body_len);
+    
+    printf("\n========= HTTP REQUEST BEGIN =========\n");
+    printf("Method       : %.*s\n", (int)method_len, method);
+    printf("Host         : %.*s\n", (int)host_len, host);
+    printf("Path         : %.*s\n", (int)path_len, path);
+    printf("Content-Type : %.*s\n", (int)content_type_len, content_type);
+    printf("Auth         : %.*s\n", (int)auth_len, (auth && auth_len > 0) ? auth : "(none)");
+    printf("Content-Length: %d\n", (int)body_len);
+    printf("Body:\n%.*s\n", (int)body_len, body ? body : "(null)");
+    printf("========= HTTP REQUEST END =========\n");
 
-    status = HTTPClient_Send(transport_interface,
-                             &request_headers, (uint8_t*)body, body ? body_len : 0, &response, 0);
 
-  } else {
-    LOGE("Failed to initialize HTTP request headers: Error=%s.", HTTPClient_strerror(status));
-  }
+    status = HTTPClient_Send(transport_interface, &request_headers,
+                             (const uint8_t*)body, body ? body_len : 0,
+                             &response, 0);
 
-  return response;
+    printf("HTTPClient_Send status: %d\n", status);
+    printf("\n--- FULL HTTP RESPONSE ---\n");
+
+if (response.pHeaders != NULL) {
+    printf("Headers     :\n%s\n", (char *)response.pHeaders);
+} else {
+    printf("Headers     : (null)\n");
 }
 
-static int peer_signaling_http_post(const char* hostname, const char* path, int port, const char* auth, const char* body) {
+printf("--- END OF RESPONSE ---\n\n");
+    
+    return response;
+}
+
+
+static int peer_signaling_http_post(const char* hostname, const char* path, int port, const char* auth, const char* body, const int receive) {
+  printf("Int receive : %d", receive);
   int ret = 0;
   TransportInterface_t trans_if = {0};
   NetworkContext_t net_ctx;
   HTTPResponse_t res;
   LOGI("Sending offer %s", body);
-  char * sdp_offer = "v=0\n"
-"o=- 1495799811084970 1495799811084970 IN IP4 0.0.0.0\n"
-"s=-\n"
-"t=0 0\n"
-"a=msid-semantic: iot\n"
-"a=group:BUNDLE audio\n"
-"m=audio 9 UDP/TLS/RTP/SAVP 8\n"
-"a=rtpmap:8 PCMA/8000\n"
-"a=ssrc:4 cname:webrtc-pcma\n"
-"a=sendrecv\n"
-"a=mid:audio\n"
-"c=IN IP4 0.0.0.0\n"
-"a=rtcp-mux\n"
-"a=fingerprint:sha-256 64:30:2B:AB:7B:40:31:CB:6C:3F:B6:64:92:B3:4B:FB:D4:AA:B4:3E:71:D6:21:BF:89:A8:8D:F1:AC:18:71:0D\n"
-"a=setup:passive\n"
-"a=ice-ufrag:ZDXN\n"
-"a=ice-pwd:ZDXNo1fRzbX5ftIe5iKC26zr\n"
-"a=candidate:1 1 UDP 2127635967 192.168.207.221 53541 typ host\n"
-"a=candidate:2 1 UDP 1691428351 152.59.35.154 53541 typ srflx raddr 0.0.0.0 rport 0\n";
+  char *sdp_offer = "v=0\n"
+                   "o=mediasoup-client 10000 1 IN IP4 0.0.0.0\n"
+                   "s=-\n"
+                   "t=0 0\n"
+                   "a=extmap-allow-mixed\n"
+                   "a=ice-lite\n"
+                   "a=fingerprint:sha-256 54:79:A2:32:86:A2:1A:77:0F:46:90:EA:4F:8A:8C:1E:97:9D:9C:F1:4C:D6:12:E2:AA:D3:11:C6:07:67:82:D7\n"
+                   "a=msid-semantic: WMS *\n"
+                   "a=group:BUNDLE 0\n"
+                   "m=audio 7 UDP/TLS/RTP/SAVPF 8\n"
+                   "c=IN IP4 127.0.0.1\n"
+                   "a=rtpmap:8 PCMA/8000\n"
+                   "a=extmap-allow-mixed\n"
+                   "a=setup:passive\n"
+                   "a=mid:0\n"
+                   "a=msid:stream-audio track-audio\n"
+                   "a=sendonly\n"
+                   "a=ice-ufrag:w8obxo7tmoaw7whadxhsaxkqzp7twdyj\n"
+                   "a=ice-pwd:2auxz697g2k2hiv0rb7ucze4lbd3m3s1\n"
+                   "a=candidate:udpcandidate 1 udp 1076302079 13.233.94.82 47760 typ host\n"
+                   "a=end-of-candidates\n"
+                   "a=ice-options:renomination\n"
+                   "a=ssrc:856714016 cname:user1647780819@host-d90962dc\n"
+                   "a=rtcp-mux\n"
+                   "a=rtcp-rsize\n";
+
+
   trans_if.recv = ssl_transport_recv;
   trans_if.send = ssl_transport_send;
   trans_if.pNetworkContext = &net_ctx;
@@ -276,35 +330,104 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
   }
 
   ret = ssl_transport_connect(&net_ctx, hostname, port, NULL);
-
   if (ret < 0) {
-    LOGE("Failed to connect to %s:%d : %d", hostname, port,ret);
+    LOGE("Failed to connect to %s:%d : %d", hostname, port, ret);
     return ret;
   }
 
-  res = peer_signaling_http_request(&trans_if, "POST", 4, hostname, strlen(hostname), path,
-                                    strlen(path), auth, strlen(auth), body, strlen(body));
 
-  ssl_transport_disconnect(&net_ctx);
+  // res = peer_signaling_http_request(&trans_if, "POST", 4, hostname, strlen(hostname), path,
+  //                                   strlen(path), auth, strlen(auth), body, strlen(body),
+  //                                   "application/sdp", strlen("application/sdp"));
 
-  if (res.pHeaders == NULL) {
-    LOGE("Response headers are NULL");
+            char auth_header[256];
+snprintf(auth_header, sizeof(auth_header), "%s", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig");
+printf("Auth Header:%s\n", auth_header);
+
+printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
+
+  // Prepare HTTP request
+  // Note: The body is expected to be a valid SDP offer
+  if (body == NULL || strlen(body) == 0) {
+    LOGE("Body is NULL or empty");
     return -1;
   }
 
-  if (res.pBody == NULL) {
-    LOGE("Response body is NULL");
+//    res = peer_signaling_http_request(
+//     &trans_if,
+//     "POST", strlen("POST"),
+//     "api.videosdk.live", strlen("api.videosdk.live"),
+//     "/v2/whep?roomId=hiqo-0uc5-kctn&participantId=whep-peer", strlen("/v2/whep?roomId=hiqo-0uc5-kctn&participantId=whep-peer"),
+//     auth_header, strlen(auth_header),
+//     body, strlen(body), "application/sdp", strlen("application/sdp")
+//  );
+
+  // Send HTTP request
+ res = peer_signaling_http_request(
+    &trans_if,
+    "POST", strlen("POST"),
+    "dev-api.videosdk.live", strlen("dev-api.videosdk.live"),
+    "/v2/whep?roomId=roye-pqdd-wbfl&participantId=whep-peer", strlen("/v2/whep?roomId=roye-pqdd-wbfl&participantId=whep-peer"),
+    auth_header, strlen(auth_header),
+    body, strlen(body), "application/sdp", strlen("application/sdp")
+ );
+printf("HTTP POST response: status code: %d\n", res.statusCode);
+  if (res.pHeaders == NULL || res.pBody == NULL) {
+    LOGE("POST response invalid");
+    ssl_transport_disconnect(&net_ctx);
     return -1;
   }
 
-  LOGI(
-      "Received HTTP response from %s%s\n"
-      "Response Headers: %s\nResponse Status: %u\nResponse Body: %s\n",
-      hostname, path, res.pHeaders, res.statusCode, res.pBody);
+  char resource_url[256] = {0};
+
+  if (res.pHeaders) {
+    char *location_line = strstr((char *)res.pHeaders, "Location:");
+    if (location_line) {
+      location_line += 9;
+      while (*location_line == ' ') location_line++;
+      char *end = strstr(location_line, "\r\n");
+      if (!end) end = strstr(location_line, "\n");
+      if (end && (end - location_line) < sizeof(resource_url)) {
+        strncpy(resource_url, location_line, end - location_line);
+        resource_url[end - location_line] = '\0';
+
+        // Strip scheme and host if present
+        if (strncmp(resource_url, "https://", 8) == 0) {
+          char *path_start = strchr(resource_url + 8, '/');
+          if (path_start) {
+            memmove(resource_url, path_start, strlen(path_start) + 1);
+          } else {
+            LOGE("Invalid Location URL: No path found.");
+            ssl_transport_disconnect(&net_ctx);
+            return -1;
+          }
+        }
+
+        printf("Extracted Resource Path: %s\n", resource_url);
+      } else {
+        printf("Failed to parse Location header.\n");
+      }
+    } else {
+      printf("Location header not found.\n");
+    }
+  }
+strncpy(g_patch_resource_path, resource_url, sizeof(g_patch_resource_path));
+strncpy(g_patch_body, body, sizeof(g_patch_body));
+strncpy(g_hostname, hostname, sizeof(g_hostname));
+strncpy(g_auth, auth, sizeof(g_auth));
+g_port = port;
 
   if (res.statusCode == 201) {
-    peer_connection_set_remote_description(g_ps.pc, (const char*)res.pBody);
+    // printf("auth which is sent : %s\n", auth);
+    // res = peer_signaling_http_request(&trans_if, "PATCH", 5, "dev-api.videosdk.live", strlen("dev-api.videosdk.live"), resource_url,
+    //                                   strlen(resource_url), auth_header, strlen(auth_header), body, strlen(body),
+    //                                   "application/trickle-ice-sdpfrag", strlen("application/trickle-ice-sdpfrag"));
+    // if (res.statusCode == 200 || res.statusCode == 204 || res.statusCode == 201) {
+      peer_connection_set_remote_description(g_ps.pc, (const char*)res.pBody);
+  //  }
   }
+printf("HTTP PATCH response status code: %d\n", res.statusCode);
+ // ssl_transport_disconnect(&net_ctx);
   return 0;
 }
 
@@ -328,87 +451,117 @@ static void peer_signaling_mqtt_event_cb(MQTTContext_t* mqtt_ctx,
   }
 }
 
-static int peer_signaling_mqtt_connect(const char* hostname, int port) {
-  MQTTStatus_t status;
-  MQTTConnectInfo_t conn_info;
-  bool session_present;
+void peer_signaling_send_periodic_patch() {
+    TransportInterface_t trans_if = {0};
+    NetworkContext_t net_ctx;
 
-  if (ssl_transport_connect(&g_ps.net_ctx, hostname, port, NULL) < 0) {
-    LOGE("ssl transport connect failed");
-    return -1;
-  }
+    trans_if.recv = ssl_transport_recv;
+    trans_if.send = ssl_transport_send;
+    trans_if.pNetworkContext = &net_ctx;
 
-  g_ps.transport.recv = ssl_transport_recv;
-  g_ps.transport.send = ssl_transport_send;
-  g_ps.transport.pNetworkContext = &g_ps.net_ctx;
-  g_ps.mqtt_fixed_buf.pBuffer = g_ps.mqtt_buf;
-  g_ps.mqtt_fixed_buf.size = sizeof(g_ps.mqtt_buf);
-  status = MQTT_Init(&g_ps.mqtt_ctx, &g_ps.transport,
-                     ports_get_epoch_time, peer_signaling_mqtt_event_cb, &g_ps.mqtt_fixed_buf);
+    int ret = ssl_transport_connect(&net_ctx, g_hostname, g_port, NULL);
+    if (ret < 0) {
+        LOGE("[PATCH] TLS connection failed");
+        return;
+    }
 
-  memset(&conn_info, 0, sizeof(conn_info));
+    HTTPResponse_t res = peer_signaling_http_request(
+        &trans_if,
+        "PATCH", 5,
+        g_hostname, strlen(g_hostname),
+        g_patch_resource_path, strlen(g_patch_resource_path),
+        g_auth, strlen(g_auth),
+        g_patch_body, strlen(g_patch_body),
+        "application/trickle-ice-sdpfrag",
+        strlen("application/trickle-ice-sdpfrag")
+    );
 
-  conn_info.cleanSession = false;
-  if (strlen(g_ps.username) > 0) {
-    conn_info.pUserName = g_ps.username;
-    conn_info.userNameLength = strlen(g_ps.username);
-  }
-
-  if (strlen(g_ps.password) > 0) {
-    conn_info.pPassword = g_ps.password;
-    conn_info.passwordLength = strlen(g_ps.password);
-  }
-
-  if (strlen(g_ps.client_id) > 0) {
-    conn_info.pClientIdentifier = g_ps.client_id;
-    conn_info.clientIdentifierLength = strlen(g_ps.client_id);
-  }
-
-  conn_info.keepAliveSeconds = KEEP_ALIVE_TIMEOUT_SECONDS;
-
-  status = MQTT_Connect(&g_ps.mqtt_ctx,
-                        &conn_info, NULL, CONNACK_RECV_TIMEOUT_MS, &session_present);
-
-  if (status != MQTTSuccess) {
-    LOGE("MQTT_Connect failed: Status=%s.", MQTT_Status_strerror(status));
-    return -1;
-  }
-
-  LOGI("MQTT_Connect succeeded.");
-  return 0;
+    ssl_transport_disconnect(&net_ctx);
+    LOGI("[PATCH] Sent periodic PATCH, status: %d", res.statusCode);
 }
 
-static int peer_signaling_mqtt_subscribe(int subscribed) {
-  MQTTStatus_t status = MQTTSuccess;
-  MQTTSubscribeInfo_t sub_info;
 
-  uint16_t packet_id = MQTT_GetPacketId(&g_ps.mqtt_ctx);
+// static int peer_signaling_mqtt_connect(const char* hostname, int port) {
+//   MQTTStatus_t status;
+//   MQTTConnectInfo_t conn_info;
+//   bool session_present;
 
-  memset(&sub_info, 0, sizeof(sub_info));
-  sub_info.qos = MQTTQoS0;
-  sub_info.pTopicFilter = g_ps.subtopic;
-  sub_info.topicFilterLength = strlen(g_ps.subtopic);
+//   if (ssl_transport_connect(&g_ps.net_ctx, hostname, port, NULL) < 0) {
+//     LOGE("ssl transport connect failed");
+//     return -1;
+//   }
 
-  if (subscribed) {
-    status = MQTT_Subscribe(&g_ps.mqtt_ctx, &sub_info, 1, packet_id);
-  } else {
-    status = MQTT_Unsubscribe(&g_ps.mqtt_ctx, &sub_info, 1, packet_id);
-  }
-  if (status != MQTTSuccess) {
-    LOGE("MQTT_Subscribe failed: Status=%s.", MQTT_Status_strerror(status));
-    return -1;
-  }
+//   g_ps.transport.recv = ssl_transport_recv;
+//   g_ps.transport.send = ssl_transport_send;
+//   g_ps.transport.pNetworkContext = &g_ps.net_ctx;
+//   g_ps.mqtt_fixed_buf.pBuffer = g_ps.mqtt_buf;
+//   g_ps.mqtt_fixed_buf.size = sizeof(g_ps.mqtt_buf);
+//   status = MQTT_Init(&g_ps.mqtt_ctx, &g_ps.transport,
+//                      ports_get_epoch_time, peer_signaling_mqtt_event_cb, &g_ps.mqtt_fixed_buf);
 
-  status = MQTT_ProcessLoop(&g_ps.mqtt_ctx);
+//   memset(&conn_info, 0, sizeof(conn_info));
 
-  if (status != MQTTSuccess) {
-    LOGE("MQTT_ProcessLoop failed: Status=%s.", MQTT_Status_strerror(status));
-    return -1;
-  }
+//   conn_info.cleanSession = false;
+//   if (strlen(g_ps.username) > 0) {
+//     conn_info.pUserName = g_ps.username;
+//     conn_info.userNameLength = strlen(g_ps.username);
+//   }
 
-  LOGD("MQTT Subscribe/Unsubscribe succeeded.");
-  return 0;
-}
+//   if (strlen(g_ps.password) > 0) {
+//     conn_info.pPassword = g_ps.password;
+//     conn_info.passwordLength = strlen(g_ps.password);
+//   }
+
+//   if (strlen(g_ps.client_id) > 0) {
+//     conn_info.pClientIdentifier = g_ps.client_id;
+//     conn_info.clientIdentifierLength = strlen(g_ps.client_id);
+//   }
+
+//   conn_info.keepAliveSeconds = KEEP_ALIVE_TIMEOUT_SECONDS;
+
+//   status = MQTT_Connect(&g_ps.mqtt_ctx,
+//                         &conn_info, NULL, CONNACK_RECV_TIMEOUT_MS, &session_present);
+
+//   if (status != MQTTSuccess) {
+//     LOGE("MQTT_Connect failed: Status=%s.", MQTT_Status_strerror(status));
+//     return -1;
+//   }
+
+//   LOGI("MQTT_Connect succeeded.");
+//   return 0;
+// }
+
+// static int peer_signaling_mqtt_subscribe(int subscribed) {
+//   MQTTStatus_t status = MQTTSuccess;
+//   MQTTSubscribeInfo_t sub_info;
+
+//   uint16_t packet_id = MQTT_GetPacketId(&g_ps.mqtt_ctx);
+
+//   memset(&sub_info, 0, sizeof(sub_info));
+//   sub_info.qos = MQTTQoS0;
+//   sub_info.pTopicFilter = g_ps.subtopic;
+//   sub_info.topicFilterLength = strlen(g_ps.subtopic);
+
+//   if (subscribed) {
+//     status = MQTT_Subscribe(&g_ps.mqtt_ctx, &sub_info, 1, packet_id);
+//   } else {
+//     status = MQTT_Unsubscribe(&g_ps.mqtt_ctx, &sub_info, 1, packet_id);
+//   }
+//   if (status != MQTTSuccess) {
+//     LOGE("MQTT_Subscribe failed: Status=%s.", MQTT_Status_strerror(status));
+//     return -1;
+//   }
+
+//   status = MQTT_ProcessLoop(&g_ps.mqtt_ctx);
+
+//   if (status != MQTTSuccess) {
+//     LOGE("MQTT_ProcessLoop failed: Status=%s.", MQTT_Status_strerror(status));
+//     return -1;
+//   }
+
+//   LOGD("MQTT Subscribe/Unsubscribe succeeded.");
+//   return 0;
+// }
 
 static void peer_signaling_onicecandidate(char* description, void* userdata) {
   cJSON* res;
@@ -436,9 +589,9 @@ static void peer_signaling_onicecandidate(char* description, void* userdata) {
       base64_encode((unsigned char*)cred_plaintext, strlen(cred_plaintext),
                     cred_base64 + strlen(cred_base64), sizeof(cred_base64) - strlen(cred_base64));
       LOGD("Basic Auth: %s", cred_base64);
-      peer_signaling_http_post(g_ps.http_host, g_ps.http_path, g_ps.http_port, cred_base64, description);
+      peer_signaling_http_post(g_ps.http_host, g_ps.http_path, g_ps.http_port, cred_base64, description,0);
     } else {
-      peer_signaling_http_post(g_ps.http_host, g_ps.http_path, g_ps.http_port, g_ps.bearer_token, description);
+      peer_signaling_http_post(g_ps.http_host, g_ps.http_path, g_ps.http_port, g_ps.bearer_token, description,0);
     }
   }
 }
@@ -456,31 +609,47 @@ int peer_signaling_whip_connect() {
   return 0;
 }
 
+void audio_subscribe(){
+    printf("Audio subscribe called1\n");
+    char cred_base64[2 * CRED_LEN + 10];
+    printf("Audio subscribe called2\n");
+    if (g_ps.pc == NULL) {
+    LOGW("PeerConnection is NULL");
+    printf("Audio subscribe called3\n");
+  }
+printf("Audio subscribe called4\n");
+  const char* description = create_recvonly_offer(g_ps.pc);
+  printf("Audio subscribe called5\n");
+   peer_signaling_http_post("dev-whip.videosdk.live","/whep",443, cred_base64, description,0);
+   printf("Audio subscribe called6\n");
+}
+
+
 void peer_signaling_whip_disconnect() {
   // TODO: implement
 }
 
-int peer_signaling_join_channel() {
-  if (g_ps.pc == NULL) {
-    LOGW("PeerConnection is NULL");
-    return -1;
-  } else if (g_ps.mqtt_port <= 0) {
-    LOGW("Invalid MQTT port number: %d", g_ps.mqtt_port);
-    if (peer_signaling_whip_connect() < 0) {
-      LOGW("Tried MQTT and WHIP, connect failed");
-      return -1;
-    }
-    return 0;
-  }
+// int peer_signaling_join_channel() {
+//   if (g_ps.pc == NULL) {
+//     LOGW("PeerConnection is NULL");
+//     return -1;
+//   } else if (g_ps.mqtt_port <= 0) {
+//     LOGW("Invalid MQTT port number: %d", g_ps.mqtt_port);
+//     if (peer_signaling_whip_connect() < 0) {
+//       LOGW("Tried MQTT and WHIP, connect failed");
+//       return -1;
+//     }
+//     return 0;
+//   }
 
-  if (peer_signaling_mqtt_connect(g_ps.mqtt_host, g_ps.mqtt_port) < 0) {
-    LOGW("Connect MQTT server failed");
-    return -1;
-  }
+//   if (peer_signaling_mqtt_connect(g_ps.mqtt_host, g_ps.mqtt_port) < 0) {
+//     LOGW("Connect MQTT server failed");
+//     return -1;
+//   }
 
-  peer_signaling_mqtt_subscribe(1);
-  return 0;
-}
+//   peer_signaling_mqtt_subscribe(1);
+//   return 0;
+// }
 
 int peer_signaling_loop() {
   if (g_ps.mqtt_port > 0) {
@@ -489,16 +658,16 @@ int peer_signaling_loop() {
   return 0;
 }
 
-void peer_signaling_leave_channel() {
-  MQTTStatus_t status = MQTTSuccess;
+// void peer_signaling_leave_channel() {
+//   MQTTStatus_t status = MQTTSuccess;
 
-  if (g_ps.mqtt_port > 0 && peer_signaling_mqtt_subscribe(0) == 0) {
-    status = MQTT_Disconnect(&g_ps.mqtt_ctx);
-    if (status != MQTTSuccess) {
-      LOGE("Failed to disconnect with broker: %s", MQTT_Status_strerror(status));
-    }
-  }
-}
+//   if (g_ps.mqtt_port > 0 && peer_signaling_mqtt_subscribe(0) == 0) {
+//     status = MQTT_Disconnect(&g_ps.mqtt_ctx);
+//     if (status != MQTTSuccess) {
+//       LOGE("Failed to disconnect with broker: %s", MQTT_Status_strerror(status));
+//     }
+//   }
+// }
 
 void peer_signaling_set_config(ServiceConfiguration* service_config) {
   char* pos;
@@ -553,3 +722,4 @@ void peer_signaling_set_config(ServiceConfiguration* service_config) {
   peer_connection_onicecandidate(g_ps.pc, peer_signaling_onicecandidate);
 }
 #endif  // DISABLE_PEER_SIGNALING
+  

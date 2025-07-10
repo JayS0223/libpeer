@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-
+#include <sdp.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -150,6 +150,9 @@ char* peer_connection_lookup_sid_label(PeerConnection* pc, uint16_t sid);
  * @param[in] ice candidate
  */
 int peer_connection_add_ice_candidate(PeerConnection* pc, char* ice_candidate);
+
+char* create_recvonly_offer(PeerConnection* pc) ;
+void sdp_force_recvonly(Sdp* sdp);
 
 #ifdef __cplusplus
 }
