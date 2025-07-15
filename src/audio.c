@@ -37,53 +37,6 @@ static player_system_t  player_sys;
 #define I2S_DOUT_GPIO 5    
 #endif
 
-#if defined(CONFIG_ESP32_S3_KORVO_2_V3_0_BOARD)
-// #include "opus/opus.h"
-
-// #define SAMPLE_RATE 16000         // OPUS typically uses 16kHz or 48kHz
-// #define CHANNELS 2               // Mono
-// #define MAX_FRAME_SIZE 960       // 20ms @ 48kHz = 960 samples per channel
-static adec_handle_t g_adec = NULL;
-
-static const int16_t ALawDecompressTable[256] = {
-    -5504, -5248, -6016, -5760, -4480, -4224, -4992, -4736,
-    -7552, -7296, -8064, -7808, -6528, -6272, -7040, -6784,
-    -2752, -2624, -3008, -2880, -2240, -2112, -2496, -2368,
-    -3776, -3648, -4032, -3904, -3264, -3136, -3520, -3392,
-    -22016,-20992,-24064,-23040,-17920,-16896,-19968,-18944,
-    -30208,-29184,-32256,-31232,-26112,-25088,-28160,-27136,
-    -11008,-10496,-12032,-11520,-8960, -8448, -9984, -9472,
-    -15104,-14592,-16128,-15616,-13056,-12544,-14080,-13568,
-    -344,  -328,  -376,  -360,  -280,  -264,  -312,  -296,
-    -472,  -456,  -504,  -488,  -408,  -392,  -440,  -424,
-    -88,   -72,   -120,  -104,  -24,   -8,    -56,   -40,
-    -216,  -200,  -248,  -232,  -152,  -136,  -184,  -168,
-    -1376, -1312, -1504, -1440, -1120, -1056, -1248, -1184,
-    -1888, -1824, -2016, -1952, -1632, -1568, -1760, -1696,
-    -688,  -656,  -752,  -720,  -560,  -528,  -624,  -592,
-    -944,  -912,  -1008, -976,  -816,  -784,  -880,  -848,
-     5504,  5248,  6016,  5760,  4480,  4224,  4992,  4736,
-     7552,  7296,  8064,  7808,  6528,  6272,  7040,  6784,
-     2752,  2624,  3008,  2880,  2240,  2112,  2496,  2368,
-     3776,  3648,  4032,  3904,  3264,  3136,  3520,  3392,
-    22016, 20992, 24064, 23040, 17920, 16896, 19968, 18944,
-    30208, 29184, 32256, 31232, 26112, 25088, 28160, 27136,
-    11008, 10496, 12032, 11520, 8960,  8448,  9984,  9472,
-    15104, 14592, 16128, 15616, 13056, 12544, 14080, 13568,
-     344,   328,   376,   360,   280,   264,   312,   296,
-     472,   456,   504,   488,   408,   392,   440,   424,
-     88,    72,    120,   104,   24,    8,     56,    40,
-     216,   200,   248,   232,   152,   136,   184,   168,
-    1376,  1312,  1504,  1440,  1120,  1056,  1248,  1184,
-    1888,  1824,  2016,  1952,  1632,  1568,  1760,  1696,
-     688,   656,   752,   720,   560,   528,   624,   592,
-     944,   912,  1008,   976,   816,   784,   880,   848
-};
-
-static inline int16_t alaw_decode(uint8_t a_val) {
-    return ALawDecompressTable[a_val];
-}
-#endif
 
 static bool subscribed = false;
 #define TAG "AUDIO"
@@ -602,32 +555,255 @@ int32_t audio_get_samples(uint8_t* buf, size_t size) {
 // }
 
 
-void audio_receive_g711a_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp)  {
+bool skip_rtp_extension(const uint8_t* payload, size_t payload_len, const uint8_t** audio_out, size_t* audio_len_out) {
+    if (payload_len < 4) return false;
 
-    printf("audio_receive_g711a_and_render: encoded_len=%d, timestamp=%ld\n", (int)encoded_len, timestamp);
-    if (encoded_len > AUDIO_FRAME_MAX_SIZE / 2) {
-        ESP_LOGW(TAG, "Received oversized G711A frame: %d bytes", (int)encoded_len);
-        return;
+    if (payload[0] == 0xBE && payload[1] == 0xDE) {
+        uint16_t ext_len_words = (payload[2] << 8) | payload[3];
+        size_t ext_len_bytes = 4 + ext_len_words * 4;
+
+        if (payload_len <= ext_len_bytes) return false;
+
+        *audio_out = payload + ext_len_bytes;
+        *audio_len_out = payload_len - ext_len_bytes;
+        return true;
     }
 
-    // static int16_t pcm_buffer[AUDIO_FRAME_MAX_SIZE];  // PCM16 output
+    // No extension
+    *audio_out = payload;
+    *audio_len_out = payload_len;
+    return true;
+}
 
-    // for (size_t i = 0; i < encoded_len; i++) {
-    //     pcm_buffer[i] = alaw_decode(encoded_data[i]);
+
+
+
+int16_t alaw_to_linear(uint8_t a_val) {
+    a_val ^= 0x55;
+    int t = ((a_val & 0x0F) << 4) + 8;
+    t += 0x100;
+    t <<= ((unsigned)a_val & 0x70) >> 4;
+    return (a_val & 0x80) ? t : -t;
+}
+
+#define MAX_ALAW_SAMPLES 24000  // 3 seconds of PCMA
+static uint8_t alaw_buffer[MAX_ALAW_SAMPLES];
+static size_t alaw_index = 0;
+static bool dumped = false;
+#define CUSTOM_HEADER_SIZE 20 // BE DE 00 03 + 16 bytes metadata
+
+bool remove_custom_header(const uint8_t* input_data, size_t input_len, 
+    const uint8_t** output_data, size_t* output_len) {
+
+// Check if payload is large enough to contain header
+if (input_len < CUSTOM_HEADER_SIZE) {
+ESP_LOGW(TAG, "Payload too small for header removal: %d bytes", (int)input_len);
+return false;
+}
+
+// Optional: Verify magic bytes for validation
+if (input_data[0] == 0xBE && input_data[1] == 0xDE) {
+ESP_LOGD(TAG, "Valid custom header detected (BE DE)");
+} else {
+ESP_LOGW(TAG, "Unexpected magic bytes: %02X %02X", input_data[0], input_data[1]);
+// You might want to return false here if validation is critical
+}
+
+// Skip header and return pointer to actual data
+*output_data = input_data + CUSTOM_HEADER_SIZE;
+*output_len = input_len - CUSTOM_HEADER_SIZE;
+
+ESP_LOGD(TAG, "Header removed: %d bytes -> %d bytes", (int)input_len, (int)*output_len);
+return true;
+}
+
+void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp) {
+        const uint8_t* audio_payload = NULL;
+        size_t audio_payload_len = 0;
+        
+    //     if (!skip_rtp_extension(encoded_data, encoded_len, &audio_payload, &audio_payload_len)) {
+    //     ESP_LOGW(TAG, "Failed to parse RTP extension payload.");
+    //     return;
     // }
 
-    av_render_audio_data_t audio_data = { // Use the provided timestamp
-        .data = encoded_data,
-        .size = encoded_len * sizeof(int16_t),
+    const uint8_t* final_audio_data = NULL;
+    size_t final_audio_len = 0;
+    
+    if (!remove_custom_header(encoded_data, encoded_len, &final_audio_data, &final_audio_len)) {
+        ESP_LOGW(TAG, "Failed to remove custom header from audio payload.");
+        return;
+    }
+    
+    // Log the data for debugging (first few bytes)
+   
+             //     // // ✅ Accumulate A-law samples
+    // for (size_t i = 0; i < final_audio_len && alaw_index < MAX_ALAW_SAMPLES; i++) {
+    //     alaw_buffer[alaw_index++] = final_audio_data[i];
+    // }
+
+    // // ✅ Dump once we reach 3 seconds worth of PCMA (8000 samples/sec = 8000 bytes/sec for PCMA)
+    // if (alaw_index >= MAX_ALAW_SAMPLES && !dumped) {
+    //     dumped = true;
+    //     printf("\n----- BEGIN ALAW DUMP -----\n");
+    //     printf("uint8_t alaw_data[%d] = {\n", (int)alaw_index);
+    //     for (size_t i = 0; i < alaw_index; i++) {
+    //         printf("0x%02X, ", alaw_buffer[i]);
+    //         if (i % 16 == 15) printf("\n");
+    //     }
+    //     printf("\n};\n");
+    //     printf("----- END ALAW DUMP -----\n");
+    // }
+
+
+    av_render_audio_data_t audio_data = {
+        .pts = timestamp,
+        .data = (uint8_t*)final_audio_data,
+        .size = final_audio_len * sizeof(uint8_t),  // Use byte size here
     };
 
     int ret = av_render_add_audio_data(player_sys.player, &audio_data);
     if (ret != 0) {
         ESP_LOGW(TAG, "Audio render failed (ret=%d)", ret);
     } else {
-        ESP_LOGI(TAG, "Rendered %d PCM samples", (int)encoded_len);
+        ESP_LOGI(TAG, "Rendered %d bytes of audio", (int)final_audio_len);
     }
 }
+
+
+// void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp) {
+//     const uint8_t* audio_payload = NULL;
+//     size_t audio_payload_len = 0;
+
+//     uint8_t pt = encoded_data[1] & 0x7F;
+//     ESP_LOGI(TAG, "before RTP payload type: %d", pt);
+//     // if (!skip_rtp_extension(encoded_data, encoded_len, &audio_payload, &audio_payload_len)) {
+//     //     ESP_LOGW(TAG, "Invalid RTP payload");
+//     //     return;
+//     // }
+
+//     // // ✅ Accumulate A-law samples
+//     // for (size_t i = 0; i < audio_payload_len && alaw_index < MAX_ALAW_SAMPLES; i++) {
+//     //     alaw_buffer[alaw_index++] = audio_payload[i];
+//     // }
+
+//     // // ✅ Dump once we reach 3 seconds worth of PCMA (8000 samples/sec = 8000 bytes/sec for PCMA)
+//     // if (alaw_index >= MAX_ALAW_SAMPLES && !dumped) {
+//     //     dumped = true;
+//     //     printf("\n----- BEGIN ALAW DUMP -----\n");
+//     //     printf("uint8_t alaw_data[%d] = {\n", (int)alaw_index);
+//     //     for (size_t i = 0; i < alaw_index; i++) {
+//     //         printf("0x%02X, ", alaw_buffer[i]);
+//     //         if (i % 16 == 15) printf("\n");
+//     //     }
+//     //     printf("\n};\n");
+//     //     printf("----- END ALAW DUMP -----\n");
+//     // }
+
+
+//     av_render_audio_data_t audio_data = {
+//         .pts = timestamp,
+//         .data = (uint8_t*)audio_payload,
+//         .size = audio_payload_len * sizeof(int16_t),
+//     };
+
+//     int ret = av_render_add_audio_data(player_sys.player, &audio_data);
+//     if (ret != 0) {
+//         ESP_LOGW(TAG, "Audio render failed (ret=%d)", ret);
+//     } else {
+//         ESP_LOGI(TAG, "Rendered %d PCM samples", (int)audio_payload_len);
+//     }
+// }
+
+
+
+// void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp) {
+//     const uint8_t* audio_payload = NULL;
+//     size_t audio_payload_len = 0;
+
+//     if (!skip_rtp_extension(encoded_data, encoded_len, &audio_payload, &audio_payload_len)) {
+//         ESP_LOGW(TAG, "Failed to parse RTP extension payload.");
+//         return;
+//     }
+
+//     for (size_t i = 0; i < audio_payload_len && pcm_index < MAX_PCM_SAMPLES; i++) {
+//         pcm_buffer[pcm_index++] = alaw_to_linear(audio_payload[i]);
+//     }
+
+//     // if (pcm_index >= MAX_PCM_SAMPLES && !dumped) {
+//     //     dumped = true;
+//     //     printf("\n----- BEGIN PCM DUMP -----\n");
+//     //     printf("int16_t pcm_samples[%d] = {\n", (int)pcm_index);
+//     //     for (size_t i = 0; i < pcm_index; i++) {
+//     //         printf("%d, ", pcm_buffer[i]);
+//     //         if (i % 10 == 9) printf("\n");
+//     //     }
+//     //     printf("\n};\n");
+//     //     printf("----- END PCM DUMP -----\n");
+//     // }
+
+//     if (pcm_index >= MAX_PCM_SAMPLES && !dumped) {
+//         dumped = true;
+//         printf("\n----- BEGIN ALAW DUMP -----\n");
+//         printf("uint8_t alaw_data[%d] = {\n", (int)audio_payload_len);
+//         for (size_t i = 0; i < audio_payload_len; i++) {
+//             printf("0x%02X, ", audio_payload[i]);
+//             if (i % 16 == 15) printf("\n");
+//         }
+//         printf("\n};\n");
+//         printf("----- END ALAW DUMP -----\n");
+//     }
+
+//     // ⚠️ Skip rendering if you don't need I2S or get errors
+//     /*
+//     av_render_audio_data_t audio_data = {
+//         .pts = timestamp,
+//         .data = (uint8_t*)pcm_buffer,
+//         .size = pcm_index * sizeof(int16_t),
+//     };
+
+//     int ret = av_render_add_audio_data(player_sys.player, &audio_data);
+//     if (ret != 0) {
+//         ESP_LOGW(TAG, "Audio render failed (ret=%d)", ret);
+//     } else {
+//         ESP_LOGI(TAG, "Rendered %d PCM samples", (int)pcm_index);
+//     }
+//     */
+// }
+
+
+// void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp) {
+//     const uint8_t* audio_payload = NULL;
+//     size_t audio_payload_len = 0;
+
+//     if (!skip_rtp_extension(encoded_data, encoded_len, &audio_payload, &audio_payload_len)) {
+//         ESP_LOGW(TAG, "Failed to parse RTP extension payload.");
+//         return;
+//     }
+
+//     printf("[PCM DUMP] First 40 decoded PCM samples: ");
+//     for (int i = 0; i < 40 && i < audio_payload_len; i++) {
+//         int16_t sample = alaw_to_linear(audio_payload[i]);
+//         printf("%d ", sample);
+//     }
+
+//     printf("\n");
+
+//     av_render_audio_data_t audio_data = {
+//         .pts = timestamp,
+//         .data = (uint8_t*)audio_payload,
+//         .size = audio_payload_len * sizeof(int16_t),
+//     };
+
+//     int ret = av_render_add_audio_data(player_sys.player, &audio_data);
+//     if (ret != 0) {
+//         ESP_LOGW(TAG, "Audio render failed (ret=%d)", ret);
+//     } else {
+//         ESP_LOGI(TAG, "Rendered %d PCM samples", (int)audio_payload_len);
+//     }
+// }
+
+
+
 
 
 

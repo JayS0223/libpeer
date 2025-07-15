@@ -14,8 +14,8 @@ void init_board(void)
     set_codec_board_type(TEST_BOARD_NAME);
     // Notes when use playback and record at same time, must set reuse_dev = false
     codec_init_cfg_t cfg = {
-        .in_mode = CODEC_I2S_MODE_TDM,
-        .in_use_tdm = true,
+        // .in_mode = CODEC_I2S_MODE_TDM,
+        // .in_use_tdm = true,
         .reuse_dev = false
     };
     init_codec(&cfg);

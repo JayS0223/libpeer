@@ -829,6 +829,18 @@ static int dtls_srtp_key_derivation(DtlsSrtp* dtls_srtp, const unsigned char* ma
   dtls_srtp->remote_policy.key = dtls_srtp->remote_policy_key;
   dtls_srtp->remote_policy.next = NULL;
 
+  printf("Isha client_key:"); 
+  for (int i = 0; i < SRTP_MASTER_KEY_LENGTH; ++i) printf("%02X ", client_key[i]);
+  printf("Isha client_salt:"); 
+  for (int i = 0; i < SRTP_MASTER_SALT_LENGTH; ++i) printf("%02X ", client_salt[i]);
+  printf("Isha server_key:"); 
+  for (int i = 0; i < SRTP_MASTER_KEY_LENGTH; ++i) printf("%02X ", server_key[i]);
+  printf("Isha server_salt:"); 
+  for (int i = 0; i < SRTP_MASTER_SALT_LENGTH; ++i) printf("%02X ", server_salt[i]);
+
+  LOGI("Isha Role = %s", dtls_srtp->role == DTLS_SRTP_ROLE_SERVER ? "Server" : "Client");
+
+
   if (srtp_create(&dtls_srtp->srtp_in, &dtls_srtp->remote_policy) != srtp_err_status_ok) {
     LOGD("Error creating inbound SRTP session for component");
     return -1;
@@ -984,7 +996,7 @@ printf("DTLS handshake started with role %d\n", dtls_srtp->role);
     dtls_srtp_x509_digest(remote_crt, dtls_srtp->actual_remote_fingerprint);
 
     if (strncmp(dtls_srtp->remote_fingerprint, dtls_srtp->actual_remote_fingerprint, DTLS_SRTP_FINGERPRINT_LENGTH) != 0) {
-      LOGE("Actual and Expected Fingerprint mismatch: %s %s",
+      printf("Isha Actual and Expected Fingerprint mismatch: %s %s",
            dtls_srtp->remote_fingerprint,
            dtls_srtp->actual_remote_fingerprint);
       return -1;
@@ -1043,8 +1055,8 @@ int dtls_srtp_probe(uint8_t* buf) {
   return (buf[0] == 0x17);
 }
 
-void dtls_srtp_decrypt_rtp_packet(DtlsSrtp* dtls_srtp, uint8_t* packet, int* bytes) {
-  srtp_unprotect(dtls_srtp->srtp_in, packet, bytes);
+int dtls_srtp_decrypt_rtp_packet(DtlsSrtp* dtls_srtp, uint8_t* packet, int* bytes) {
+  return srtp_unprotect(dtls_srtp->srtp_in, packet, bytes);
 }
 
 void dtls_srtp_decrypt_rtcp_packet(DtlsSrtp* dtls_srtp, uint8_t* packet, int* bytes) {

@@ -33,7 +33,7 @@ extern esp_err_t audio_codec_init();
 extern void audio_playback_task(void* pvParameters);
 extern void camera_task(void* pvParameters);
 // extern void audio_task(void* pvParameters);
-extern void audio_receive_g711a_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
+extern void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
 extern void audio_decode_init();
 extern void audio_av_render_init();
 
@@ -172,7 +172,7 @@ void app_main(void) {
 #if defined(CONFIG_WHIP_URL)
    // .video_codec = CODEC_H264,
    .audio_codec = CODEC_PCMA,
-   .onaudiotrack = audio_receive_g711a_and_render,
+   .onaudiotrack = audio_receive_and_render,
 
 #endif
   };
@@ -247,7 +247,7 @@ void app_main(void) {
  //xTaskCreatePinnedToCore(audio_playback_task, "audio_playback_task", 4096, NULL, 5, NULL, 1);
  // xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
 
-  xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 8192, NULL, 5, &xPcTaskHandle, 1);
+  xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 16384, NULL, 5, &xPcTaskHandle, 1);
 
   ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
   ESP_LOGI(TAG, "open https://sepfy.github.io/webrtc?deviceId=%s", deviceid);

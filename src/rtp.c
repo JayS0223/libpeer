@@ -241,7 +241,10 @@ static int rtp_decode_generic(RtpDecoder* rtp_decoder, uint8_t* buf, size_t size
   RtpPacket* rtp_packet = (RtpPacket*)buf;
 if (rtp_decoder->on_packet != NULL){
     uint32_t timestamp = ntohl(rtp_packet->header.timestamp);
+    printf("rtp_decode_generic header size %d : ",sizeof(RtpHeader)); //12
+    printf("rtp_decode_generic size %d : ",size); // 108
     int payload_size = size - sizeof(RtpHeader);
+    printf("rtp_decode_generic payload size %d : ", payload_size);
 
     printf("RTP packet received: type=%d, seq_number=%d, timestamp=%lu, ssrc=%lu\n",
           rtp_packet->header.type,
@@ -260,7 +263,7 @@ if (rtp_decoder->on_packet != NULL){
   return (int)size;
 
 }
-
+   
 void rtp_decoder_init(RtpDecoder* rtp_decoder, MediaCodec codec, RtpOnPacket on_packet, void* user_data) {
   rtp_decoder->on_packet = on_packet;
   rtp_decoder->user_data = user_data;

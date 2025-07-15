@@ -215,6 +215,9 @@ RETRY:
         ESP_LOGE(TAG, "Audio decode error %d", ret);
         return ret;
     }
+    printf("Hello decoder_one_frame");
+    printf("Hello decoder_one_frame %d", adec->header_parsed);
+    printf("Hello decoder_one_frame %ld", frame.decoded_size);
     if (adec->header_parsed == false && frame.decoded_size > 0) {
         esp_audio_dec_info_t header = {};
         esp_audio_dec_get_info(adec->dec_handle, &header);

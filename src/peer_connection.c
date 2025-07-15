@@ -434,7 +434,12 @@ int peer_connection_loop(PeerConnection* pc) {
 
         if (rtcp_probe(pc->agent_buf, pc->agent_ret)) {
           LOGD("Got RTCP packet");
-          dtls_srtp_decrypt_rtcp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
+          int decrypt_status = dtls_srtp_decrypt_rtp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
+          if (decrypt_status != 0) {
+              LOGE("SRTP decryption failed with code %d", decrypt_status);
+              return 0;
+          }
+          // dtls_srtp_decrypt_rtcp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
           peer_connection_incoming_rtcp(pc, pc->agent_buf, pc->agent_ret);
 
         } else if (dtls_srtp_probe(pc->agent_buf)) {
@@ -492,6 +497,7 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
   Agent* agent = &pc->agent;
 
   while ((line = strstr(start, "\r\n"))) {
+
     line = strstr(start, "\r\n");
     strncpy(buf, start, line - start);
     buf[line - start] = '\0';
@@ -509,6 +515,7 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
         (strncmp(buf + strlen("a=ice-ufrag:"), agent->remote_ufrag, strlen(agent->remote_ufrag)) == 0)) {
       is_update = 1;
     }
+
 
     if (strstr(buf, "m=video")) {
       ssrc = &pc->remote_vssrc;
@@ -528,9 +535,10 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
     return;
   }
 
-  if (!pc->b_local_description_created) {
+  if (!pc->b_local_description_created || pc->dtls_srtp.role != role) {
     peer_connection_state_new(pc, role, 0);
-  }
+}
+
 
   agent_set_remote_description(&pc->agent, (char*)sdp_text);
   STATE_CHANGED(pc, PEER_CONNECTION_CHECKING);
