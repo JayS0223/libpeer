@@ -215,55 +215,127 @@ audio_resample_handle_t audio_resample_open(audio_resample_cfg_t *cfg)
     return NULL;
 }
 
+// int audio_resample_write(audio_resample_handle_t h, av_render_audio_frame_t *data)
+// {
+//     resample_t *resample = (resample_t *)h;
+//     // Bypass or size is 0
+//     if (data->size == 0 || resample->ops[0] == RESAMPLE_OPS_NONE) {
+//         resample->cfg.resample_cb(data, resample->cfg.ctx);
+//         return ESP_MEDIA_ERR_OK;
+//     }
+//     av_render_audio_frame_info_t cur_info = resample->cfg.input_info;
+//     work_buf_t *cur = NULL;
+//     work_buf_t *last = NULL;
+//     uint32_t sample_num = data->size / SAMPLE_SIZE(cur_info);
+//     int need_size = 0;
+//     for (int i = 0; i < ELEMS(resample->ops); i++) {
+//         if (resample->ops[i] == RESAMPLE_OPS_NONE) {
+//             break;
+//         }
+//         uint32_t out_sample = sample_num;
+//         need_size = get_need_size(resample, resample->ops[i], &out_sample, &cur_info);
+//         cur = alloc_work_buf(resample, need_size);
+//         if (cur == NULL) {
+//             release_work_buf(last);
+//             return ESP_MEDIA_ERR_NO_MEM;
+//         }
+//         esp_ae_sample_t in_sample = (esp_ae_sample_t)(last ? last->data : data->data);
+//         if (resample->ops[i] == RESAMPLE_OPS_CH_CVT) {
+//             esp_ae_ch_cvt_process(resample->ch_cvt_handle, sample_num, in_sample, (esp_ae_sample_t)cur->data);
+//             cur_info.channel = resample->cfg.output_info.channel;
+//         } else if (resample->ops[i] == RESAMPLE_OPS_RATE_CVT) {
+//             esp_ae_rate_cvt_process(resample->rate_cvt_handle, in_sample, sample_num, (esp_ae_sample_t)cur->data, &out_sample);
+//             need_size = out_sample * SAMPLE_SIZE(cur_info);
+//             cur_info.sample_rate = resample->cfg.output_info.sample_rate;
+//             sample_num = out_sample;
+//         } else if (resample->ops[i] == RESAMPLE_OPS_BIT_CVT) {
+//             esp_ae_bit_cvt_process(resample->bit_cvt_handle, sample_num, in_sample, (esp_ae_sample_t)cur->data);
+//             cur_info.bits_per_sample = resample->cfg.output_info.bits_per_sample;
+//         }
+//         if (last) {
+//             release_work_buf(last);
+//         }
+//         last = cur;
+//     }
+//     release_work_buf(cur);
+//     av_render_audio_frame_t new_frame = *data;
+//     new_frame.data = cur->data;
+//     new_frame.size = need_size;
+//     resample->cfg.resample_cb(&new_frame, resample->cfg.ctx);
+//     return ESP_MEDIA_ERR_OK;
+// }
+
 int audio_resample_write(audio_resample_handle_t h, av_render_audio_frame_t *data)
 {
     resample_t *resample = (resample_t *)h;
+
     // Bypass or size is 0
     if (data->size == 0 || resample->ops[0] == RESAMPLE_OPS_NONE) {
         resample->cfg.resample_cb(data, resample->cfg.ctx);
         return ESP_MEDIA_ERR_OK;
     }
+
     av_render_audio_frame_info_t cur_info = resample->cfg.input_info;
     work_buf_t *cur = NULL;
     work_buf_t *last = NULL;
     uint32_t sample_num = data->size / SAMPLE_SIZE(cur_info);
+
+    // 🟡 LOG the last sample before resampling
+    if (cur_info.bits_per_sample == 16) {
+        int16_t *input_samples = (int16_t *)data->data;
+        int total_samples = data->size / sizeof(int16_t);
+        int16_t last_sample_value = input_samples[total_samples - 1];
+        ESP_LOGI(TAG, "Last input sample before resample: %d", last_sample_value);
+    }
+
     int need_size = 0;
     for (int i = 0; i < ELEMS(resample->ops); i++) {
         if (resample->ops[i] == RESAMPLE_OPS_NONE) {
             break;
         }
+
         uint32_t out_sample = sample_num;
         need_size = get_need_size(resample, resample->ops[i], &out_sample, &cur_info);
+
         cur = alloc_work_buf(resample, need_size);
         if (cur == NULL) {
             release_work_buf(last);
             return ESP_MEDIA_ERR_NO_MEM;
         }
+
         esp_ae_sample_t in_sample = (esp_ae_sample_t)(last ? last->data : data->data);
+
         if (resample->ops[i] == RESAMPLE_OPS_CH_CVT) {
             esp_ae_ch_cvt_process(resample->ch_cvt_handle, sample_num, in_sample, (esp_ae_sample_t)cur->data);
             cur_info.channel = resample->cfg.output_info.channel;
+
         } else if (resample->ops[i] == RESAMPLE_OPS_RATE_CVT) {
             esp_ae_rate_cvt_process(resample->rate_cvt_handle, in_sample, sample_num, (esp_ae_sample_t)cur->data, &out_sample);
             need_size = out_sample * SAMPLE_SIZE(cur_info);
             cur_info.sample_rate = resample->cfg.output_info.sample_rate;
             sample_num = out_sample;
+
         } else if (resample->ops[i] == RESAMPLE_OPS_BIT_CVT) {
             esp_ae_bit_cvt_process(resample->bit_cvt_handle, sample_num, in_sample, (esp_ae_sample_t)cur->data);
             cur_info.bits_per_sample = resample->cfg.output_info.bits_per_sample;
         }
+
         if (last) {
             release_work_buf(last);
         }
         last = cur;
     }
+
     release_work_buf(cur);
+
     av_render_audio_frame_t new_frame = *data;
     new_frame.data = cur->data;
     new_frame.size = need_size;
     resample->cfg.resample_cb(&new_frame, resample->cfg.ctx);
+
     return ESP_MEDIA_ERR_OK;
 }
+
 
 void audio_resample_close(audio_resample_handle_t h)
 {

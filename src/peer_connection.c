@@ -505,7 +505,7 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
     if (strstr(buf, "a=setup:passive")) {
       role = DTLS_SRTP_ROLE_CLIENT;
     }
-
+  
     if (strstr(buf, "a=fingerprint")) {
       strncpy(pc->dtls_srtp.remote_fingerprint, buf + 22, DTLS_SRTP_FINGERPRINT_LENGTH);
     }
@@ -571,8 +571,11 @@ void peer_connection_on_receiver_packet_loss(PeerConnection* pc,
                                              void (*on_receiver_packet_loss)(float fraction_loss, uint32_t total_loss, void* userdata)) {
   pc->on_receiver_packet_loss = on_receiver_packet_loss;
 }
+int counter4 = 0;
 
 void peer_connection_onicecandidate(PeerConnection* pc, void (*onicecandidate)(char* sdp_text, void* userdata)) {
+printf("Counter inside the peer_connection_onicecandidate:%d", counter4);
+counter4++;
   pc->onicecandidate = onicecandidate;
 }
 

@@ -1,6 +1,6 @@
 project(lib)
 
-file(GLOB SRCS "av_render.c" "audio.c" "*.c")
+file(GLOB SRCS "peer_connection.c" "peer_signaling.c" "av_render.c" "audio.c" "*.c")
 
 file(GLOB HEADERS "peer.h" "peer_connection.h" "agent.c" "peer_signaling.h")
 

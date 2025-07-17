@@ -231,6 +231,7 @@ RETRY:
     }
     frame_data->data = adec->frame_data;
     frame_data->size = frame.decoded_size;
+    printf("decoded frame size:%ld \n", frame.decoded_size);
     if (adec->frame_cb) {
         adec->frame_cb(frame_data, adec->ctx);
     }

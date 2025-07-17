@@ -1,5 +1,6 @@
 #include "driver/i2s_std.h"
 #include "esp_log.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_audio_enc.h"
@@ -23,7 +24,10 @@ typedef struct {
     av_render_handle_t    player;
 } player_system_t;
 
+#define RENDER_QUEUE_LENGTH 20
 
+
+ QueueHandle_t render_queue = NULL;
 static player_system_t  player_sys;
 
 #if defined(CONFIG_ESP32S3_XIAO)
@@ -49,6 +53,11 @@ typedef struct {
     size_t length;
 } AudioFrame_t;
 
+typedef struct {
+    uint8_t data[AUDIO_FRAME_MAX_SIZE];
+    size_t length;
+    uint32_t pts;
+} RenderFrame_t;
 
 static i2s_chan_handle_t tx_handle = NULL;  // I2S TX for playback
 static QueueHandle_t audio_queue = NULL;
@@ -116,15 +125,15 @@ esp_codec_dev_set_out_vol(i2s_cfg.play_handle, 100);
     player_sys.player = av_render_open(&render_cfg);
 
     av_render_audio_info_t audio_info = {
-        .codec = AV_RENDER_AUDIO_CODEC_G711A,
-        .sample_rate = 8000,      // 8000 or 16000 based on your setup
+        .codec = AV_RENDER_AUDIO_CODEC_OPUS,
+        .sample_rate = 16000,      // 8000 or 16000 based on your setup
         .channel = 1,             // 1 for mono
-        .bits_per_sample = 16,
+        .bits_per_sample = 24,
     };
       av_render_audio_frame_info_t aud_info = {
-        .sample_rate = 8000,
+        .sample_rate = 48000,
         .channel = 1,
-        .bits_per_sample = 16,
+        .bits_per_sample = 24,
     };
     av_render_set_fixed_frame_info(player_sys.player, &aud_info);
 
@@ -245,6 +254,8 @@ esp_codec_dev_set_out_vol(i2s_cfg.play_handle, 100);
 //         ESP_LOGI(TAG, "Decoder initialized for codec %d", codec);
 //     }
 // }
+
+
 
 
 esp_err_t audio_codec_init() {
@@ -590,7 +601,7 @@ int16_t alaw_to_linear(uint8_t a_val) {
 static uint8_t alaw_buffer[MAX_ALAW_SAMPLES];
 static size_t alaw_index = 0;
 static bool dumped = false;
-#define CUSTOM_HEADER_SIZE 20 // BE DE 00 03 + 16 bytes metadata
+#define CUSTOM_HEADER_SIZE 16 // BE DE 00 03 + 16 bytes metadata
 
 bool remove_custom_header(const uint8_t* input_data, size_t input_len, 
     const uint8_t** output_data, size_t* output_len) {
@@ -668,6 +679,59 @@ void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, u
         ESP_LOGI(TAG, "Rendered %d bytes of audio", (int)final_audio_len);
     }
 }
+
+
+// void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp) {
+//     const uint8_t* final_audio_data = NULL;
+//     size_t final_audio_len = 0;
+
+//     if (!remove_custom_header(encoded_data, encoded_len, &final_audio_data, &final_audio_len)) {
+//         ESP_LOGW(TAG, "Failed to remove custom header from audio payload.");
+//         return;
+//     }
+    
+
+//     if (render_queue == NULL) {
+//         ESP_LOGW(TAG, "Render queue not initialized");
+//         return;
+//     }
+
+//     RenderFrame_t frame = {0};
+//     frame.length = final_audio_len;
+//     frame.pts = timestamp;
+
+//     if (final_audio_len > AUDIO_FRAME_MAX_SIZE) {
+//         ESP_LOGW(TAG, "Audio frame too large to queue");
+//         return;
+//     }
+
+//     memcpy(frame.data, final_audio_data, final_audio_len);
+
+//     if (xQueueSend(render_queue, &frame, 0) != pdTRUE) {
+//         ESP_LOGW(TAG, "Render queue full, dropping frame");
+//     }
+// }
+
+
+// void render_audio_task(void *arg) {
+//     RenderFrame_t frame;
+
+//     while (1) {
+//         if (xQueueReceive(render_queue, &frame, portMAX_DELAY) == pdTRUE) {
+//             av_render_audio_data_t audio_data = {
+//                 .pts = frame.pts,
+//                 .data = frame.data,
+//                 .size = frame.length,
+//             };
+
+//             int ret = av_render_add_audio_data(player_sys.player, &audio_data);
+//             if (ret != 0) {
+//                 ESP_LOGW(TAG, "av_render_add_audio_data failed (ret=%d)", ret);
+//             }
+//         }
+//     }
+// }
+
 
 
 // void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp) {

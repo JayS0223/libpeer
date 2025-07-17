@@ -193,7 +193,7 @@ static void peer_signaling_on_pub_event(const char* msg, size_t size) {
     cJSON_Delete(req);
   }
 }
-
+int counter = 0;
 HTTPResponse_t peer_signaling_http_request(
     const TransportInterface_t* transport_interface,
     const char* method,
@@ -209,6 +209,8 @@ HTTPResponse_t peer_signaling_http_request(
     char* content_type,
     size_t content_type_len
 ) {
+  printf("Counter inside the http_request : %d", counter);
+  counter = counter +1;
     printf("HTTP Request : %.*s %.*s%.*s\n",
            (int)method_len, method,
            (int)host_len, host,
@@ -285,8 +287,10 @@ printf("--- END OF RESPONSE ---\n\n");
     return response;
 }
 
-
+int counter1 = 0;
 static int peer_signaling_http_post(const char* hostname, const char* path, int port, const char* auth, const char* body, const int receive) {
+  printf("Counter inside the http_post:%d", counter1);
+  counter1++;
   printf("Int receive : %d", receive);
   int ret = 0;
   TransportInterface_t trans_if = {0};
@@ -356,8 +360,8 @@ printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
 //    res = peer_signaling_http_request(
 //     &trans_if,
 //     "POST", strlen("POST"),
-//     "api.videosdk.live", strlen("api.videosdk.live"),
-//     "/v2/whep?roomId=hiqo-0uc5-kctn&participantId=whep-peer", strlen("/v2/whep?roomId=hiqo-0uc5-kctn&participantId=whep-peer"),
+//     "dev-whip.videosdk.live", strlen("dev-whip.videosdk.live"),
+//     "/whep", strlen("/whep"),
 //     auth_header, strlen(auth_header),
 //     body, strlen(body), "application/sdp", strlen("application/sdp")
 //  );
@@ -366,8 +370,8 @@ printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
  res = peer_signaling_http_request(
     &trans_if,
     "POST", strlen("POST"),
-    "dev-api.videosdk.live", strlen("dev-api.videosdk.live"),
-    "/v2/whep?roomId=roye-pqdd-wbfl&participantId=whep-peer", strlen("/v2/whep?roomId=roye-pqdd-wbfl&participantId=whep-peer"),
+    "dev-whip.videosdk.live", strlen("dev-whip.videosdk.live"),
+    "/whep", strlen("/whep"),
     auth_header, strlen(auth_header),
     body, strlen(body), "application/sdp", strlen("application/sdp")
  );
@@ -562,8 +566,10 @@ void peer_signaling_send_periodic_patch() {
 //   LOGD("MQTT Subscribe/Unsubscribe succeeded.");
 //   return 0;
 // }
-
+int counter2 = 0;
 static void peer_signaling_onicecandidate(char* description, void* userdata) {
+  printf("Counter inside the peer_signaling_onicecandidate: %d", counter2);
+  counter2++;
   cJSON* res;
   char* payload;
   char cred_plaintext[2 * CRED_LEN + 1];
@@ -668,8 +674,10 @@ int peer_signaling_loop() {
 //     }
 //   }
 // }
-
+int counter3 = 0;
 void peer_signaling_set_config(ServiceConfiguration* service_config) {
+  printf("Counter inside the peer_signaling_set_config: %d", counter3);
+  counter3++;
   char* pos;
 
   memset(&g_ps, 0, sizeof(g_ps));

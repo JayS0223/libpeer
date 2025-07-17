@@ -23,7 +23,7 @@
 #include "media_lib_os.h"
 #include "codec_board.h"
 //static const char* TAG = "webrtc";
-
+#define AUDIO_FRAME_MAX_SIZE 640 
 static TaskHandle_t xPcTaskHandle = NULL;
 static TaskHandle_t xCameraTaskHandle = NULL;
 static TaskHandle_t xAudioTaskHandle = NULL;
@@ -36,6 +36,15 @@ extern void camera_task(void* pvParameters);
 extern void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
 extern void audio_decode_init();
 extern void audio_av_render_init();
+extern void render_audio_task(void *arg);
+extern QueueHandle_t render_queue; // Declare the queue here
+#define RENDER_QUEUE_LENGTH 20
+
+typedef struct {
+    uint8_t data[AUDIO_FRAME_MAX_SIZE];
+    size_t length;
+    uint32_t pts;
+} RenderFrame_t;
 
 //extern void init_board();
 #define RUN_ASYNC(name, body)           \
@@ -166,12 +175,10 @@ void app_main(void) {
 
   PeerConfiguration config = {
     .ice_servers = {
-        {.urls = "in1.turn.videosdk.live:3478",
-          .username = "trlxuNeZ4c5stlbod3ic",
-            .credential = "videosdk"}},
+      {.urls = "stun:stun.l.google.com:19302"}},
 #if defined(CONFIG_WHIP_URL)
    // .video_codec = CODEC_H264,
-   .audio_codec = CODEC_PCMA,
+   .audio_codec = CODEC_OPUS,
    .onaudiotrack = audio_receive_and_render,
 
 #endif
@@ -243,8 +250,14 @@ void app_main(void) {
    //  xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 8192, NULL, 9, stack_memory, &task_buffer, 0);
   }
 #endif
-
- //xTaskCreatePinnedToCore(audio_playback_task, "audio_playback_task", 4096, NULL, 5, NULL, 1);
+  if (render_queue == NULL) {
+        render_queue = xQueueCreate(RENDER_QUEUE_LENGTH, sizeof(RenderFrame_t));
+        if (render_queue == NULL) {
+            ESP_LOGE("APP_MAIN", "Failed to create render queue");
+            return;
+        }
+    }
+ // xTaskCreatePinnedToCore(render_audio_task, "RenderAudioTask", 4096, NULL, 5, NULL, 0);
  // xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
 
   xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 16384, NULL, 5, &xPcTaskHandle, 1);
