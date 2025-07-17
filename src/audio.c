@@ -131,7 +131,7 @@ esp_codec_dev_set_out_vol(i2s_cfg.play_handle, 100);
         .bits_per_sample = 24,
     };
       av_render_audio_frame_info_t aud_info = {
-        .sample_rate = 48000,
+        .sample_rate = 16000,
         .channel = 1,
         .bits_per_sample = 24,
     };
