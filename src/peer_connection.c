@@ -29,6 +29,7 @@ struct PeerConnection {
 
   Sdp local_sdp;
   Sdp remote_sdp;
+  time_t last_binding_request_time;
 
   void (*onicecandidate)(char* sdp, void* user_data);
   void (*oniceconnectionstatechange)(PeerConnectionState state, void* user_data);
@@ -341,10 +342,10 @@ int peer_connection_loop(PeerConnection* pc) {
       }
       break;
 
-    case PEER_CONNECTION_CHECKING:
+      case PEER_CONNECTION_CHECKING:
       if (agent_select_candidate_pair(&pc->agent) < 0) {
         STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-      } else if (agent_connectivity_check(&pc->agent) == 0) {
+      } else if (agent_connectivity_check(&pc->agent, 0) == 0) {
         STATE_CHANGED(pc, PEER_CONNECTION_CONNECTED);
       }
       break;
@@ -359,11 +360,20 @@ int peer_connection_loop(PeerConnection* pc) {
           sctp_create_socket(&pc->sctp, &pc->dtls_srtp);
           pc->sctp.userdata = pc->config.user_data;
         }
-
+        pc->last_binding_request_time = time(NULL);
         STATE_CHANGED(pc, PEER_CONNECTION_COMPLETED);
       }
       break;
     case PEER_CONNECTION_COMPLETED:
+        LOGI("PEER_CONNECTION_COMPLETED %lld" , pc->last_binding_request_time);
+        time_t current_time = time(NULL);
+        LOGI("PEER_CONNECTION_COMPLETED %lld" , current_time);
+        LOGI("PEER_CONNECTION_COMPLETED %lld" , current_time - pc->last_binding_request_time);
+        if (current_time - pc->last_binding_request_time >= 8) {
+          agent_connectivity_check(&pc->agent, 1);
+          LOGI("heartbeat sent!");
+          pc->last_binding_request_time = current_time;
+        }
 
       // data = buffer_peak_head(pc->video_rb, &bytes);
       // if (data) {

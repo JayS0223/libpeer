@@ -146,9 +146,22 @@ static void peer_signaling_on_pub_event(const char* msg, size_t size) {
         break;
       }
 
-      if (state == PEER_CONNECTION_NEW) {
-        peer_connection_set_remote_description(g_ps.pc, item->valuestring);
-        result = cJSON_CreateString("");
+      // if (state == PEER_CONNECTION_NEW) {
+      //   peer_connection_set_remote_description(g_ps.pc, item->valuestring);
+      //   result = cJSON_CreateString("");
+      // }
+
+      switch (state) {
+        case PEER_CONNECTION_NEW:
+        case PEER_CONNECTION_DISCONNECTED:
+        case PEER_CONNECTION_FAILED:
+        case PEER_CONNECTION_CLOSED: {
+          g_ps.id = id;
+          peer_connection_set_remote_description(g_ps.pc, item->valuestring);
+        } break;
+        default: {
+          error = cJSON_CreateRaw(RPC_ERROR_INTERNAL_ERROR);
+        } break;
       }
 
     } else if (strcmp(item->valuestring, RPC_METHOD_STATE) == 0) {
@@ -247,25 +260,27 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
   NetworkContext_t net_ctx;
   HTTPResponse_t res;
   LOGI("Sending offer %s", body);
-  char * sdp_offer = "v=0\n"
-"o=- 1495799811084970 1495799811084970 IN IP4 0.0.0.0\n"
-"s=-\n"
-"t=0 0\n"
-"a=msid-semantic: iot\n"
-"a=group:BUNDLE audio\n"
-"m=audio 9 UDP/TLS/RTP/SAVP 8\n"
-"a=rtpmap:8 PCMA/8000\n"
-"a=ssrc:4 cname:webrtc-pcma\n"
-"a=sendrecv\n"
-"a=mid:audio\n"
-"c=IN IP4 0.0.0.0\n"
-"a=rtcp-mux\n"
-"a=fingerprint:sha-256 64:30:2B:AB:7B:40:31:CB:6C:3F:B6:64:92:B3:4B:FB:D4:AA:B4:3E:71:D6:21:BF:89:A8:8D:F1:AC:18:71:0D\n"
-"a=setup:passive\n"
-"a=ice-ufrag:ZDXN\n"
-"a=ice-pwd:ZDXNo1fRzbX5ftIe5iKC26zr\n"
-"a=candidate:1 1 UDP 2127635967 192.168.207.221 53541 typ host\n"
-"a=candidate:2 1 UDP 1691428351 152.59.35.154 53541 typ srflx raddr 0.0.0.0 rport 0\n";
+//   char * sdp_offer = "v=0\n"
+// "o=- 1495799811084970 1495799811084970 IN IP4 0.0.0.0\n"
+// "s=-\n"
+// "t=0 0\n"
+// "a=msid-semantic: iot\n"
+// "a=group:BUNDLE audio\n"
+// "m=audio 9 UDP/TLS/RTP/SAVP 8\n"
+// "a=rtpmap:8 PCMA/8000\n"
+// "a=ssrc:4 cname:webrtc-pcma\n"
+// "a=sendrecv\n"
+// "a=mid:audio\n"
+// "c=IN IP4 0.0.0.0\n"
+// "a=rtcp-mux\n"
+// "a=fingerprint:sha-256 64:30:2B:AB:7B:40:31:CB:6C:3F:B6:64:92:B3:4B:FB:D4:AA:B4:3E:71:D6:21:BF:89:A8:8D:F1:AC:18:71:0D\n"
+// "a=setup:passive\n"
+// "a=ice-ufrag:ZDXN\n"
+// "a=ice-pwd:ZDXNo1fRzbX5ftIe5iKC26zr\n"
+// "a=candidate:1 1 UDP 2127635967 192.168.207.221 53541 typ host\n"
+// "a=candidate:2 1 UDP 1691428351 152.59.35.154 53541 typ srflx raddr 0.0.0.0 rport 0\n";
+
+
   trans_if.recv = ssl_transport_recv;
   trans_if.send = ssl_transport_send;
   trans_if.pNetworkContext = &net_ctx;
@@ -282,8 +297,48 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
     return ret;
   }
 
-  res = peer_signaling_http_request(&trans_if, "POST", 4, hostname, strlen(hostname), path,
-                                    strlen(path), auth, strlen(auth), body, strlen(body));
+  // res = peer_signaling_http_request(&trans_if, "POST", 4, hostname, strlen(hostname), path,
+  //                                   strlen(path), auth, strlen(auth), body, strlen(body));
+
+
+char auth_header[256];
+snprintf(auth_header, sizeof(auth_header), "%s", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig");
+printf("Auth Header:%s\n", auth_header);
+
+printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
+
+  // Prepare HTTP request
+  // Note: The body is expected to be a valid SDP offer
+  if (body == NULL || strlen(body) == 0) {
+    LOGE("Body is NULL or empty");
+    return -1;
+  }
+
+  // Send HTTP request
+ res = peer_signaling_http_request(
+    &trans_if,
+    "POST", strlen("POST"),
+    "dev-api.videosdk.live", strlen("dev-api.videosdk.live"),
+    "/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer", strlen("/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer"),
+    auth_header, strlen(auth_header),
+    body, strlen(body)
+);
+  
+
+// char auth_header[256];
+// snprintf(auth_header, sizeof(auth_header), "%s", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI1MzE0YzVkZC0wN2MzLTRjZTgtYThmYi03ZmY0ZDZiMDdhYTIiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTc1MTI2MTQ4MCwiZXhwIjoxNzgyNzk3NDgwfQ.yMH2talasjiL7ftJt2hl9h6_L96G1YU_tjujycAEi9M");
+// printf("Auth Header:%s\n", auth_header);
+
+// printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
+
+//   res = peer_signaling_http_request(
+//     &trans_if,
+//     "POST", strlen("POST"),
+//     "us2.api.videosdk.live", strlen("us2.api.videosdk.live"),
+//     "/v2/whip?roomId=54dr-h8c5-hsif&participantId=whip-peer", strlen("/v2/whip?roomId=54dr-h8c5-hsif&participantId=whip-peer"),
+//     auth_header, strlen(auth_header),
+//   body, strlen(body)
+// );       
 
   ssl_transport_disconnect(&net_ctx);
 

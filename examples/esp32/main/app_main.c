@@ -106,10 +106,13 @@ void app_main(void) {
 
   PeerConfiguration config = {
     .ice_servers = {
-        {.urls = "stun:stun.l.google.com:19302"}},
+        {.urls = "in1.turn.videosdk.live:3478",
+          .username = "trlxuNeZ4c5stlbod3ic",
+            .credential = "videosdk"
+        }},
 #if defined(CONFIG_WHIP_URL)
    // .video_codec = CODEC_H264,
-   .audio_codec = CODEC_PCMA,
+   .audio_codec = CODEC_OPUS,
 #else
     
     .datachannel = DATA_CHANNEL_BINARY,
@@ -189,7 +192,7 @@ void app_main(void) {
   ESP_LOGI(TAG, "open https://sepfy.github.io/webrtc?deviceId=%s", deviceid);
 
   while (1) {
-    peer_signaling_loop();
+    // peer_signaling_loop();
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }

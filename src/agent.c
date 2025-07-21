@@ -1,12 +1,9 @@
-#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/select.h>
-#include <sys/socket.h>
 #include <unistd.h>
 
-#include <pthread.h>
 #include "agent.h"
 #include "base64.h"
 #include "ice.h"
@@ -16,7 +13,7 @@
 #include "utils.h"
 
 #define AGENT_POLL_TIMEOUT 1
-#define AGENT_CONNCHECK_MAX 300
+#define AGENT_CONNCHECK_MAX 1000
 #define AGENT_CONNCHECK_PERIOD 100
 #define AGENT_STUN_RECV_MAXTIMES 1000
 
@@ -61,18 +58,24 @@ void agent_destroy(Agent* agent) {
 static int agent_socket_recv(Agent* agent, Address* addr, uint8_t* buf, int len) {
   int ret = -1;
   int i = 0;
-  int maxfd = 0;
+  int maxfd = -1;
   fd_set rfds;
   struct timeval tv;
+  int addr_type[] = { AF_INET,
+#if CONFIG_IPV6
+                      AF_INET6,
+#endif
+  };
+
   tv.tv_sec = 0;
   tv.tv_usec = AGENT_POLL_TIMEOUT * 1000;
   FD_ZERO(&rfds);
 
-  for (i = 0; i < 2; i++) {
+  for (i = 0; i < sizeof(addr_type) / sizeof(addr_type[0]); i++) {
     if (agent->udp_sockets[i].fd > maxfd) {
       maxfd = agent->udp_sockets[i].fd;
     }
-    if (agent->udp_sockets[i].fd > 0) {
+    if (agent->udp_sockets[i].fd >= 0) {
       FD_SET(agent->udp_sockets[i].fd, &rfds);
     }
   }
@@ -317,9 +320,8 @@ static void agent_create_binding_response(Agent* agent, StunMessage* msg, Addres
   stun_msg_finish(msg, STUN_CREDENTIAL_SHORT_TERM, agent->local_upwd, strlen(agent->local_upwd));
 }
 
-static void agent_create_binding_request(Agent* agent, StunMessage* msg) {
+static void agent_create_binding_request(Agent* agent, StunMessage* msg, int is_heartbeat) {
   uint64_t tie_breaker = 0;  // always be controlled
-  // send binding request
   stun_msg_create(msg, STUN_CLASS_REQUEST | STUN_METHOD_BINDING);
   char username[584];
   memset(username, 0, sizeof(username));
@@ -327,7 +329,9 @@ static void agent_create_binding_request(Agent* agent, StunMessage* msg) {
   stun_msg_write_attr(msg, STUN_ATTR_TYPE_USERNAME, strlen(username), username);
   stun_msg_write_attr(msg, STUN_ATTR_TYPE_PRIORITY, 4, (char*)&agent->nominated_pair->priority);
   if (agent->mode == AGENT_MODE_CONTROLLING) {
-    stun_msg_write_attr(msg, STUN_ATTR_TYPE_USE_CANDIDATE, 0, NULL);
+    if (!is_heartbeat) {
+      stun_msg_write_attr(msg, STUN_ATTR_TYPE_USE_CANDIDATE, 0, NULL);
+    }
     stun_msg_write_attr(msg, STUN_ATTR_TYPE_ICE_CONTROLLING, 8, (char*)&tie_breaker);
   } else {
     stun_msg_write_attr(msg, STUN_ATTR_TYPE_ICE_CONTROLLED, 8, (char*)&tie_breaker);
@@ -340,15 +344,20 @@ void agent_process_stun_request(Agent* agent, StunMessage* stun_msg, Address* ad
   StunHeader* header;
   switch (stun_msg->stunmethod) {
     case STUN_METHOD_BINDING:
+      LOGI("[ICE] Received valid");
       if (stun_msg_is_valid(stun_msg->buf, stun_msg->size, agent->local_upwd) == 0) {
         header = (StunHeader*)stun_msg->buf;
         memcpy(agent->transaction_id, header->transaction_id, sizeof(header->transaction_id));
         agent_create_binding_response(agent, &msg, addr);
         agent_socket_send(agent, addr, msg.buf, msg.size);
         agent->binding_request_time = ports_get_epoch_time();
+        LOGI("[ICE] Received valid STUN binding request from :%d, updated binding_request_time to %llu", addr->port, agent->binding_request_time);
+      } else {
+        LOGW("[ICE] Received invalid STUN binding request");
       }
       break;
     default:
+    LOGI("[ICE] Received valid  DEFAULT");
       break;
   }
 }
@@ -365,24 +374,81 @@ void agent_process_stun_response(Agent* agent, StunMessage* stun_msg) {
   }
 }
 
+#pragma pack(push, 1)
+typedef struct {
+    uint16_t type;
+    uint16_t length;
+} StunAttrHdr;
+#pragma pack(pop)
+
+#define STUN_ATTR_ERROR_CODE 0x0009
+
 int agent_recv(Agent* agent, uint8_t* buf, int len) {
+  LOGI("agent_recv");
   int ret = -1;
   StunMessage stun_msg;
   Address addr;
   if ((ret = agent_socket_recv(agent, &addr, buf, len)) > 0 && stun_probe(buf, len) == 0) {
+   
     memcpy(stun_msg.buf, buf, ret);
     stun_msg.size = ret;
     stun_parse_msg_buf(&stun_msg);
+    LOGI("agent_recv stun_msg if con %d" , stun_msg.stunclass);
     switch (stun_msg.stunclass) {
       case STUN_CLASS_REQUEST:
+        LOGI("STUN_CLASS_REQUEST");
         agent_process_stun_request(agent, &stun_msg, &addr);
         break;
       case STUN_CLASS_RESPONSE:
+        LOGI("STUN_CLASS_SUCCESS_RESPONSE");
         agent_process_stun_response(agent, &stun_msg);
         break;
       case STUN_CLASS_ERROR:
+        LOGI("STUN_CLASS_ERROR_RESPONSE");
+        // Optionally handle error response
+        LOGI("STUN_CLASS_ERROR_RESPONSE");
+
+        // Pointer just past the 20‑byte STUN header
+        uint8_t* p = stun_msg.buf + 20;
+        int remaining = stun_msg.size - 20;
+    
+        while (remaining >= sizeof(StunAttrHdr)) {
+            StunAttrHdr* hdr = (StunAttrHdr*)p;
+            uint16_t attr_type = ntohs(hdr->type);
+            uint16_t attr_len  = ntohs(hdr->length);
+            uint8_t* value      = p + sizeof(StunAttrHdr);
+    
+            if (attr_type == STUN_ATTR_ERROR_CODE) {
+                if (attr_len >= 4) {
+                    // first 2 bytes are reserved (class in high 3 bits, number in low 8 bits)
+                    int class_byte = value[2] & 0x07;
+                    int number     = value[3];
+                    int error_code = class_byte * 100 + number;
+    
+                    // rest is reason phrase, not necessarily NUL‑terminated
+                    int reason_len = attr_len - 4;
+                    char reason[256] = {0};
+                    if (reason_len > 0 && reason_len < sizeof(reason)) {
+                        memcpy(reason, value + 4, reason_len);
+                        reason[reason_len] = '\0';
+                    }
+    
+                    LOGI("STUN Error Code=%d, Reason=\"%s\"", error_code, reason);
+                } else {
+                    LOGI("Malformed ERROR‑CODE attribute (len=%u)", attr_len);
+                }
+                break;  // found it; stop scanning
+            }
+    
+            // advance to next attr (with 32‑bit padding)
+            int total = sizeof(StunAttrHdr) + attr_len;
+            int padded = (total + 3) & ~3;
+            p        += padded;
+            remaining -= padded;
+        }
         break;
       default:
+        LOGI("agent_recv stun_msg default");
         break;
     }
     ret = 0;
@@ -412,7 +478,14 @@ void agent_set_remote_description(Agent* agent, char* description) {
 
     } else if (strncmp(line_start, "a=candidate:", strlen("a=candidate:")) == 0) {
       if (ice_candidate_from_description(&agent->remote_candidates[agent->remote_candidates_count], line_start, line_end) == 0) {
-        agent->remote_candidates_count++;
+        for (i = 0; i < agent->remote_candidates_count; i++) {
+          if (strcmp(agent->remote_candidates[i].foundation, agent->remote_candidates[agent->remote_candidates_count].foundation) == 0) {
+            break;
+          }
+        }
+        if (i == agent->remote_candidates_count) {
+          agent->remote_candidates_count++;
+        }
       }
     }
 
@@ -437,32 +510,32 @@ void agent_set_remote_description(Agent* agent, char* description) {
   LOGD("candidate pairs num: %d", agent->candidate_pairs_num);
 }
 
-int agent_connectivity_check(Agent* agent) {
+int agent_connectivity_check(Agent* agent, int is_heartbeat) {
   char addr_string[ADDRSTRLEN];
   uint8_t buf[1400];
   StunMessage msg;
-
-  if (agent->nominated_pair->state != ICE_CANDIDATE_STATE_INPROGRESS) {
-    LOGI("nominated pair is not in progress");
-    return -1;
-  }
-
-  memset(&msg, 0, sizeof(msg));
-
-  if (agent->nominated_pair->conncheck % AGENT_CONNCHECK_PERIOD == 0) {
-    addr_to_string(&agent->nominated_pair->remote->addr, addr_string, sizeof(addr_string));
-    LOGD("send binding request to remote ip: %s, port: %d", addr_string, agent->nominated_pair->remote->addr.port);
-    agent_create_binding_request(agent, &msg);
+  if (!is_heartbeat) { 
+    if (agent->nominated_pair->state != ICE_CANDIDATE_STATE_INPROGRESS) {
+      LOGI("agent_connectivity_check : nominated pair is not in progress");
+      return -1;
+    }
+    memset(&msg, 0, sizeof(msg));
+    if (agent->nominated_pair->conncheck % AGENT_CONNCHECK_PERIOD == 0) {
+      addr_to_string(&agent->nominated_pair->remote->addr, addr_string, sizeof(addr_string));
+      LOGI("[ICE] Sending STUN binding request to remote ip: %s, port: %d", addr_string, agent->nominated_pair->remote->addr.port);
+      agent_create_binding_request(agent, &msg, 0);
+      agent_socket_send(agent, &agent->nominated_pair->remote->addr, msg.buf, msg.size);
+    }
+    agent_recv(agent, buf, sizeof(buf));
+    if (agent->nominated_pair->state == ICE_CANDIDATE_STATE_SUCCEEDED) {
+      agent->selected_pair = agent->nominated_pair;
+      return 0;
+    }
+  } else {
+    LOGI("[ICE] Sending heartbeat STUN binding request");
+    agent_create_binding_request(agent, &msg, 1);
     agent_socket_send(agent, &agent->nominated_pair->remote->addr, msg.buf, msg.size);
   }
-
-  agent_recv(agent, buf, sizeof(buf));
-
-  if (agent->nominated_pair->state == ICE_CANDIDATE_STATE_SUCCEEDED) {
-    agent->selected_pair = agent->nominated_pair;
-    return 0;
-  }
-
   return -1;
 }
 
