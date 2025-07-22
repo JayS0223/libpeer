@@ -241,7 +241,7 @@ int peer_connection_datachannel_send_sid(PeerConnection* pc, char* message, size
 }
 
 static char* peer_connection_dtls_role_setup_value(DtlsSrtpRole d) {
-  return d == DTLS_SRTP_ROLE_SERVER ? "a=setup:passive" : "a=setup:active";
+  return d == DTLS_SRTP_ROLE_SERVER ? "a=setup:actpass" : "a=setup:active";
 }
 
 static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int isOfferer) {
@@ -464,6 +464,7 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
     buf[line - start] = '\0';
 
     if (strstr(buf, "a=setup:passive")) {
+      printf("DTLS role: passive\n");
       role = DTLS_SRTP_ROLE_CLIENT;
     }
 

@@ -14,6 +14,11 @@ if (DEFINED ENV{IDF_PATH})
   return()
 endif()
 
+
+set(EXTRA_COMPONENT_DIRS
+    ../../components
+    )
+
 project(peer)
 
 option(ENABLE_TESTS "Enable tests" OFF)

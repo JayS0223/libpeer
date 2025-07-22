@@ -8,7 +8,6 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
-#include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
 #include "esp_tls.h"
@@ -16,10 +15,13 @@
 #include "mdns.h"
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
-
 #include "peer.h"
+#include "board.c"
+#include "media_lib_adapter.h"
+#include "media_lib_os.h"
+#include "codec_board.h"
 
-static const char* TAG = "webrtc";
+//static const char* TAG = "webrtc";
 
 static TaskHandle_t xPcTaskHandle = NULL;
 static TaskHandle_t xCameraTaskHandle = NULL;
@@ -29,6 +31,10 @@ extern esp_err_t camera_init();
 extern esp_err_t audio_init();
 extern void camera_task(void* pvParameters);
 extern void audio_task(void* pvParameters);
+extern esp_err_t audio_codec_init();
+//extern void audio_receive_g711a_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
+extern void audio_decode_init();
+extern void audio_av_render_init();
 
 SemaphoreHandle_t xSemaphore = NULL;
 
@@ -50,6 +56,50 @@ int64_t get_timestamp() {
 //     gDataChannelOpened = 0;
 //   }
 // }
+
+static void thread_scheduler(const char *thread_name, media_lib_thread_cfg_t *thread_cfg)
+{
+    if (strcmp(thread_name, "pc_task") == 0) {
+        thread_cfg->stack_size = 25 * 1024;
+        thread_cfg->priority = 18;
+        thread_cfg->core_id = 1;
+    }
+    if (strcmp(thread_name, "start") == 0) {
+        thread_cfg->stack_size = 6 * 1024;
+    }
+    if (strcmp(thread_name, "pc_send") == 0) {
+        thread_cfg->stack_size = 4 * 1024;
+        thread_cfg->priority = 15;
+        thread_cfg->core_id = 1;
+    }
+    if (strcmp(thread_name, "Adec") == 0) {
+        thread_cfg->stack_size = 40 * 1024;
+        thread_cfg->priority = 10;
+        thread_cfg->core_id = 1;
+    }
+    if (strcmp(thread_name, "venc") == 0) {
+        thread_cfg->stack_size = 20 * 1024;
+        thread_cfg->priority = 10;
+    }
+#ifdef WEBRTC_SUPPORT_OPUS
+    if (strcmp(thread_name, "aenc") == 0) {
+        thread_cfg->stack_size = 40 * 1024;
+        thread_cfg->priority = 10;
+    }
+    if (strcmp(thread_name, "SrcRead") == 0) {
+        thread_cfg->stack_size = 40 * 1024;
+        thread_cfg->priority = 16;
+        thread_cfg->core_id = 0;
+    }
+    if (strcmp(thread_name, "buffer_in") == 0) {
+        thread_cfg->stack_size = 6 * 1024;
+        thread_cfg->priority = 10;
+        thread_cfg->core_id = 0;
+    }
+#endif
+}
+
+
 static void oniceconnectionstatechange(PeerConnectionState state, void* user_data) {
   ESP_LOGI(TAG, "PeerConnectionState changed: %d (%s)", state, peer_connection_state_to_string(state));
   eState = state;
@@ -87,7 +137,7 @@ void onopen(void* userdata) {
 static void onclose(void* userdata) {
 }
 
-void peer_connection_task(void* arg) {
+void peer_connection_ta2sk(void* arg) {
   ESP_LOGI(TAG, "peer_connection_task started");
 
   for (;;) {
@@ -106,9 +156,7 @@ void app_main(void) {
 
   PeerConfiguration config = {
     .ice_servers = {
-        {.urls = "in1.turn.videosdk.live:3478",
-          .username = "trlxuNeZ4c5stlbod3ic",
-            .credential = "videosdk"
+        {.urls = "stun:stun.l.google.com:19302"
         }},
 #if defined(CONFIG_WHIP_URL)
    // .video_codec = CODEC_H264,
@@ -142,14 +190,13 @@ void app_main(void) {
   }
 
   xSemaphore = xSemaphoreCreateMutex();
-
+media_lib_add_default_adapter(); 
   peer_init();
+  media_lib_thread_set_schedule_cb(thread_scheduler);
+  init_board();
+  //audio_av_render_init();
+  audio_codec_init();
 
-  camera_init();
-
-#if defined(CONFIG_ESP32S3_XIAO_SENSE)
-  audio_init();
-#endif
 
   g_pc = peer_connection_create(&config);
   peer_connection_oniceconnectionstatechange(g_pc, oniceconnectionstatechange);
@@ -177,13 +224,16 @@ void app_main(void) {
 #endif
 
 #if defined(CONFIG_ESP32S3_XIAO_SENSE)
-  StackType_t* stack_memory = (StackType_t*)heap_caps_malloc(8192 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+
+#endif
+   StackType_t* stack_memory = (StackType_t*)heap_caps_malloc(16384 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+
   StaticTask_t task_buffer;
   if (stack_memory) {
-    xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 8192, NULL, 9, stack_memory, &task_buffer, 0);
-  }
-#endif
+  
+xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 16384, NULL, 9, stack_memory, &task_buffer, 0);
 
+  }
  // xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
 
   xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 8192, NULL, 5, &xPcTaskHandle, 1);

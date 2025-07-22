@@ -2,8 +2,17 @@
 dependencies:
   sepfy/libpeer: 
     path: ../../../
-  espressif/esp_audio_codec: "^2.0.0"
   espressif/esp32-camera: "^2.0.4"
+  espressif/esp_audio_codec: ~2.3.0
+  espressif/esp_codec_dev: ~1.3.4
+  codec_board: 
+      path: ../../../components/codec_board
+  av_render:
+     path: ../../../components/av_render
+  render_impl:
+     path: ../../../components/av_render/render_impl
+  media_lib_sal:
+    path: ../../../components/media_lib_sal
   mdns: "*"
   protocol_examples_common:
     path: ${IDF_PATH}/examples/common_components/protocol_examples_common
