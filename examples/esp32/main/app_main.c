@@ -137,7 +137,7 @@ void onopen(void* userdata) {
 static void onclose(void* userdata) {
 }
 
-void peer_connection_ta2sk(void* arg) {
+void peer_connection_task(void* arg) {
   ESP_LOGI(TAG, "peer_connection_task started");
 
   for (;;) {
@@ -160,7 +160,7 @@ void app_main(void) {
         }},
 #if defined(CONFIG_WHIP_URL)
    // .video_codec = CODEC_H264,
-   .audio_codec = CODEC_OPUS,
+   .audio_codec = CODEC_PCMA,
 #else
     
     .datachannel = DATA_CHANNEL_BINARY,
@@ -193,8 +193,9 @@ void app_main(void) {
 media_lib_add_default_adapter(); 
   peer_init();
   media_lib_thread_set_schedule_cb(thread_scheduler);
-  init_board();
+   init_board();
   //audio_av_render_init();
+  // audio_init();
   audio_codec_init();
 
 
