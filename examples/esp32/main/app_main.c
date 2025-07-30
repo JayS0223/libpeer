@@ -20,33 +20,39 @@
 #include "media_lib_adapter.h"
 #include "media_lib_os.h"
 #include "codec_board.h"
+#include "videosdk.h"
 
-//static const char* TAG = "webrtc";
 
-static TaskHandle_t xPcTaskHandle = NULL;
-static TaskHandle_t xCameraTaskHandle = NULL;
-static TaskHandle_t xAudioTaskHandle = NULL;
+static const char* TAG = "webrtc";
+
+// static TaskHandle_t xPcTaskHandle = NULL;
+// static TaskHandle_t xCameraTaskHandle = NULL;
+// static TaskHandle_t xAudioTaskHandle = NULL;
 
 extern esp_err_t camera_init();
 extern esp_err_t audio_init();
 extern void camera_task(void* pvParameters);
 extern void audio_task(void* pvParameters);
 extern esp_err_t audio_codec_init();
+extern void init_board();
 //extern void audio_receive_g711a_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
 extern void audio_decode_init();
 extern void audio_av_render_init();
+extern void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
+extern void removePeer();
+extern void startSubscribeAudioTask(void *arg);
+extern void loop_log();
+// SemaphoreHandle_t xSemaphore = NULL;
 
-SemaphoreHandle_t xSemaphore = NULL;
-
-PeerConnection* g_pc;
-PeerConnectionState eState = PEER_CONNECTION_CLOSED;
+// PeerConnection* g_pc;
+// PeerConnectionState eState = PEER_CONNECTION_CLOSED;
 int gDataChannelOpened = 0;
 
-int64_t get_timestamp() {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return (tv.tv_sec * 1000LL + (tv.tv_usec / 1000LL));
-}
+// int64_t get_timestamp() {
+//   struct timeval tv;
+//   gettimeofday(&tv, NULL);
+//   return (tv.tv_sec * 1000LL + (tv.tv_usec / 1000LL));
+// }
 
 // static void oniceconnectionstatechange(PeerConnectionState state, void* user_data) {
 //   ESP_LOGI(TAG, "PeerConnectionState: %d", state);
@@ -100,31 +106,31 @@ static void thread_scheduler(const char *thread_name, media_lib_thread_cfg_t *th
 }
 
 
-static void oniceconnectionstatechange(PeerConnectionState state, void* user_data) {
-  ESP_LOGI(TAG, "PeerConnectionState changed: %d (%s)", state, peer_connection_state_to_string(state));
-  eState = state;
+// static void oniceconnectionstatechange(PeerConnectionState state, void* user_data) {
+//   ESP_LOGI(TAG, "PeerConnectionState changed: %d (%s)", state, peer_connection_state_to_string(state));
+//   eState = state;
 
-  // if (on_connection_state_changed_cb) {
-  //   on_connection_state_changed_cb(state);  // Invoke the user-defined callback
-  // }
+//   // if (on_connection_state_changed_cb) {
+//   //   on_connection_state_changed_cb(state);  // Invoke the user-defined callback
+//   // }
 
-  switch (state) {
-    case PEER_CONNECTION_CONNECTED:
-      ESP_LOGI(TAG, "DTLS handshake completed, connection is now CONNECTED");
-      break;
-    case PEER_CONNECTION_COMPLETED:
-      ESP_LOGI(TAG, "ICE and DTLS completed, connection is now COMPLETED");
-      break;
-    case PEER_CONNECTION_FAILED:
-      ESP_LOGE(TAG, "PeerConnection FAILED");
-      break;
-    case PEER_CONNECTION_CLOSED:
-      ESP_LOGW(TAG, "PeerConnection CLOSED");
-      break;
-    default:
-      break;
-  }
-}
+//   switch (state) {
+//     case PEER_CONNECTION_CONNECTED:
+//       ESP_LOGI(TAG, "DTLS handshake completed, connection is now CONNECTED");
+//       break;
+//     case PEER_CONNECTION_COMPLETED:
+//       ESP_LOGI(TAG, "ICE and DTLS completed, connection is now COMPLETED");
+//       break;
+//     case PEER_CONNECTION_FAILED:
+//       ESP_LOGE(TAG, "PeerConnection FAILED");
+//       break;
+//     case PEER_CONNECTION_CLOSED:
+//       ESP_LOGW(TAG, "PeerConnection CLOSED");
+//       break;
+//     default:
+//       break;
+//   }
+// }
 static void onmessage(char* msg, size_t len, void* userdata, uint16_t sid) {
   ESP_LOGI(TAG, "Datachannel message: %.*s", len, msg);
 }
@@ -137,35 +143,25 @@ void onopen(void* userdata) {
 static void onclose(void* userdata) {
 }
 
-void peer_connection_task(void* arg) {
-  ESP_LOGI(TAG, "peer_connection_task started");
+// void peer_connection_task(void* arg) {
+//   ESP_LOGI(TAG, "peer_connection_task started");
+//   connection_config_t* config = (connection_config_t*) arg; 
 
-  for (;;) {
-    if (xSemaphoreTake(xSemaphore, portMAX_DELAY)) {
-      peer_connection_loop(g_pc);
-      xSemaphoreGive(xSemaphore);
-    }
+//   for (;;) {
+//     if (xSemaphoreTake(xSemaphore, portMAX_DELAY)) {
+//       peer_connection_loop(g_pc);
+//       xSemaphoreGive(xSemaphore);
+//     }
 
-    vTaskDelay(pdMS_TO_TICKS(1));
-  }
-}
+//     vTaskDelay(pdMS_TO_TICKS(1));
+//   }
+// }
+
+
 
 void app_main(void) {
   static char deviceid[32] = {0};
   uint8_t mac[8] = {0};
-
-  PeerConfiguration config = {
-    .ice_servers = {
-        {.urls = "stun:stun.l.google.com:19302"
-        }},
-#if defined(CONFIG_WHIP_URL)
-   // .video_codec = CODEC_H264,
-   .audio_codec = CODEC_PCMA,
-#else
-    
-    .datachannel = DATA_CHANNEL_BINARY,
-#endif
-  };
 
   ESP_LOGI(TAG, "[APP] Startup..");
   ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
@@ -189,60 +185,24 @@ void app_main(void) {
     ESP_LOGI(TAG, "Device ID: %s", deviceid);
   }
 
-  xSemaphore = xSemaphoreCreateMutex();
+  // xSemaphore = xSemaphoreCreateMutex();
 media_lib_add_default_adapter(); 
-  peer_init();
+ 
   media_lib_thread_set_schedule_cb(thread_scheduler);
-   init_board();
-  //audio_av_render_init();
-  // audio_init();
-  audio_codec_init();
-
-
-  g_pc = peer_connection_create(&config);
-  peer_connection_oniceconnectionstatechange(g_pc, oniceconnectionstatechange);
-  peer_connection_ondatachannel(g_pc, onmessage, onopen, onclose);
-
-  ServiceConfiguration service_config = SERVICE_CONFIG_DEFAULT();
-  service_config.pc = g_pc;
-
-#if defined(CONFIG_WHIP_URL)
-  service_config.http_url = CONFIG_WHIP_URL;
-  service_config.http_port = CONFIG_WHIP_PORT;
-  //service_config.bearer_token = CONFIG_WHIP_BEARER_TOKEN;
-#else
-  service_config.client_id = deviceid;
-  service_config.mqtt_url = "broker.emqx.io";
-#endif
-
-  peer_signaling_set_config(&service_config);
-
-#if defined(CONFIG_WHIP_URL)
-  peer_signaling_whip_connect();
-#else
-  peer_signaling_join_channel();
-  ESP_LOGI(TAG, "open https://sepfy.github.io/webrtc?deviceId=%s", deviceid);
-#endif
-
-#if defined(CONFIG_ESP32S3_XIAO_SENSE)
-
-#endif
-   StackType_t* stack_memory = (StackType_t*)heap_caps_malloc(16384 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
-
-  StaticTask_t task_buffer;
-  if (stack_memory) {
-  
-xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 16384, NULL, 9, stack_memory, &task_buffer, 0);
-
-  }
- // xTaskCreatePinnedToCore(camera_task, "camera", 4096, NULL, 8, &xCameraTaskHandle, 1);
-
-  xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 8192, NULL, 5, &xPcTaskHandle, 1);
-
-  ESP_LOGI(TAG, "[APP] Free memory: %d bytes", esp_get_free_heap_size());
-  ESP_LOGI(TAG, "open https://sepfy.github.io/webrtc?deviceId=%s", deviceid);
-
+// char *meeting_id = create_meeting("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig");
+init_config_t init_cfg = {
+    .meetingID = "roye-pqdd-wbfl",
+    .token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig",
+    .displayName = "ESP32 Device",
+  };
+  audio_codec_t cfg_publish = AUDIO_CODEC_G711A;
+  audio_codec_t cfg_subscribe = AUDIO_CODEC_OPUS;
+  init(&init_cfg);
+  startPublishAudio(cfg_publish);
+  vTaskDelay(pdMS_TO_TICKS(15000));
+  loop_log();
   while (1) {
+    printf("Waiting for task to complete from main\n");
     // peer_signaling_loop();
     vTaskDelay(pdMS_TO_TICKS(10));
   }

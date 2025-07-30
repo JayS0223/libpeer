@@ -40,6 +40,9 @@ int agent_create(Agent* agent) {
 #endif
 
   agent_clear_candidates(agent);
+
+  memset(agent->remote_ufrag, 0, sizeof(agent->remote_ufrag));
+  memset(agent->remote_upwd, 0, sizeof(agent->remote_upwd));
   return 0;
 }
 
@@ -457,58 +460,75 @@ int agent_recv(Agent* agent, uint8_t* buf, int len) {
 }
 
 void agent_set_remote_description(Agent* agent, char* description) {
-  /*
-  a=ice-ufrag:Iexb
-  a=ice-pwd:IexbSoY7JulyMbjKwISsG9
-  a=candidate:1 1 UDP 1 36.231.28.50 38143 typ srflx
-  */
   int i, j;
-
   LOGD("Set remote description:\n%s", description);
 
   char* line_start = description;
   char* line_end = NULL;
 
+  agent->remote_candidates_count = 0;  // Clear previous candidates
+
   while ((line_end = strstr(line_start, "\r\n")) != NULL) {
-    if (strncmp(line_start, "a=ice-ufrag:", strlen("a=ice-ufrag:")) == 0) {
-      strncpy(agent->remote_ufrag, line_start + strlen("a=ice-ufrag:"), line_end - line_start - strlen("a=ice-ufrag:"));
+      size_t line_len = line_end - line_start;
+      char line[256] = {0};
+      if (line_len >= sizeof(line)) line_len = sizeof(line) - 1;
+      strncpy(line, line_start, line_len);
 
-    } else if (strncmp(line_start, "a=ice-pwd:", strlen("a=ice-pwd:")) == 0) {
-      strncpy(agent->remote_upwd, line_start + strlen("a=ice-pwd:"), line_end - line_start - strlen("a=ice-pwd:"));
+      if (strncmp(line, "a=ice-ufrag:", 12) == 0) {
+          size_t ufrag_len = strlen(line + 12);
+          strncpy(agent->remote_ufrag, line + 12, ufrag_len);
+          agent->remote_ufrag[ufrag_len] = '\0';
 
-    } else if (strncmp(line_start, "a=candidate:", strlen("a=candidate:")) == 0) {
-      if (ice_candidate_from_description(&agent->remote_candidates[agent->remote_candidates_count], line_start, line_end) == 0) {
-        for (i = 0; i < agent->remote_candidates_count; i++) {
-          if (strcmp(agent->remote_candidates[i].foundation, agent->remote_candidates[agent->remote_candidates_count].foundation) == 0) {
-            break;
+      } else if (strncmp(line, "a=ice-pwd:", 10) == 0) {
+          size_t pwd_len = strlen(line + 10);
+          strncpy(agent->remote_upwd, line + 10, pwd_len);
+          agent->remote_upwd[pwd_len] = '\0';
+
+      } else if (strncmp(line, "a=candidate:", 12) == 0) {
+          IceCandidate* candidate = &agent->remote_candidates[agent->remote_candidates_count];
+          if (ice_candidate_from_description(candidate, line, line + strlen(line)) == 0) {
+
+              // Check for duplicate based on integer foundation value
+              bool duplicate = false;
+              for (i = 0; i < agent->remote_candidates_count; i++) {
+                  if (agent->remote_candidates[i].foundation == candidate->foundation) {
+                      duplicate = true;
+                      break;
+                  }
+              }
+
+              if (!duplicate) {
+                  agent->remote_candidates_count++;
+              }
           }
-        }
-        if (i == agent->remote_candidates_count) {
-          agent->remote_candidates_count++;
-        }
       }
-    }
 
-    line_start = line_end + 2;
+      line_start = line_end + 2;
   }
 
   LOGD("remote ufrag: %s", agent->remote_ufrag);
   LOGD("remote upwd: %s", agent->remote_upwd);
+  LOGD("Parsed %d remote candidates", agent->remote_candidates_count);
 
-  // Please set gather candidates before set remote description
+  // Generate candidate pairs
+  agent->candidate_pairs_num = 0;
   for (i = 0; i < agent->local_candidates_count; i++) {
-    for (j = 0; j < agent->remote_candidates_count; j++) {
-      if (agent->local_candidates[i].addr.family == agent->remote_candidates[j].addr.family) {
-        agent->candidate_pairs[agent->candidate_pairs_num].local = &agent->local_candidates[i];
-        agent->candidate_pairs[agent->candidate_pairs_num].remote = &agent->remote_candidates[j];
-        agent->candidate_pairs[agent->candidate_pairs_num].priority = agent->local_candidates[i].priority + agent->remote_candidates[j].priority;
-        agent->candidate_pairs[agent->candidate_pairs_num].state = ICE_CANDIDATE_STATE_FROZEN;
-        agent->candidate_pairs_num++;
+      for (j = 0; j < agent->remote_candidates_count; j++) {
+          if (agent->local_candidates[i].addr.family == agent->remote_candidates[j].addr.family) {
+              agent->candidate_pairs[agent->candidate_pairs_num].local = &agent->local_candidates[i];
+              agent->candidate_pairs[agent->candidate_pairs_num].remote = &agent->remote_candidates[j];
+              agent->candidate_pairs[agent->candidate_pairs_num].priority =
+                  agent->local_candidates[i].priority + agent->remote_candidates[j].priority;
+              agent->candidate_pairs[agent->candidate_pairs_num].state = ICE_CANDIDATE_STATE_FROZEN;
+              agent->candidate_pairs_num++;
+          }
       }
-    }
   }
+
   LOGD("candidate pairs num: %d", agent->candidate_pairs_num);
 }
+
+
 
 int agent_connectivity_check(Agent* agent, int is_heartbeat) {
   char addr_string[ADDRSTRLEN];

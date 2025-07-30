@@ -19,6 +19,9 @@ typedef struct ServiceConfiguration {
   const char* password;
   const char* bearer_token;
   PeerConnection* pc;
+  const char* hostname;
+  const char* path;
+  const char *auth_token;
 } ServiceConfiguration;
 
 #define SERVICE_CONFIG_DEFAULT()  \
@@ -38,6 +41,8 @@ void peer_signaling_set_config(ServiceConfiguration* config);
 
 int peer_signaling_whip_connect();
 
+int peer_signaling_whep_connect();
+
 void peer_signaling_whip_disconnect();
 
 int peer_signaling_join_channel();
@@ -45,6 +50,8 @@ int peer_signaling_join_channel();
 void peer_signaling_leave_channel();
 
 int peer_signaling_loop();
+
+int delete_peer_from_meeting();
 
 #ifdef __cplusplus
 }

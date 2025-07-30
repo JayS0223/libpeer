@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-
+#include <stdbool.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -55,6 +55,10 @@ typedef struct IceServer {
 
 } IceServer;
 
+typedef struct  {
+  char *type;
+} connection_config_t;
+
 typedef struct PeerConfiguration {
   IceServer ice_servers[5];
 
@@ -77,7 +81,7 @@ PeerConnectionState peer_connection_get_state(PeerConnection* pc);
 
 void* peer_connection_get_sctp(PeerConnection* pc);
 
-PeerConnection* peer_connection_create(PeerConfiguration* config);
+PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish, bool subscribe);
 
 void peer_connection_destroy(PeerConnection* pc);
 
@@ -100,7 +104,7 @@ int peer_connection_send_video(PeerConnection* pc, const uint8_t* packet, size_t
 
 void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp);
 
-void peer_connection_create_offer(PeerConnection* pc);
+void peer_connection_create_offer(PeerConnection* pc );
 
 /**
  * @brief register callback function to handle packet loss from RTCP receiver report

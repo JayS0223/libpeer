@@ -71,7 +71,9 @@ typedef struct PeerSignaling {
 } PeerSignaling;
 
 static PeerSignaling g_ps;
-
+char *g_hostname = NULL;
+char *g_token = NULL;
+char *g_path = NULL;
 static void peer_signaling_mqtt_publish(MQTTContext_t* mqtt_ctx, const char* message) {
   MQTTStatus_t status;
   MQTTPublishInfo_t pub_info;
@@ -254,8 +256,13 @@ HTTPResponse_t peer_signaling_http_request(const TransportInterface_t* transport
   return response;
 }
 
+char auth_header[1024];
+
+ char resource_url[256] = {0};
+ char *g_body = NULL;
 static int peer_signaling_http_post(const char* hostname, const char* path, int port, const char* auth, const char* body) {
   int ret = 0;
+g_body = (char*)body;
   TransportInterface_t trans_if = {0};
   NetworkContext_t net_ctx;
   HTTPResponse_t res;
@@ -301,9 +308,6 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
   //                                   strlen(path), auth, strlen(auth), body, strlen(body));
 
 
-char auth_header[256];
-snprintf(auth_header, sizeof(auth_header), "%s", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig");
-printf("Auth Header:%s\n", auth_header);
 
 printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
 
@@ -313,17 +317,67 @@ printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
     LOGE("Body is NULL or empty");
     return -1;
   }
-
-  // Send HTTP request
+snprintf(auth_header, sizeof(auth_header), "%s", g_token);
+printf("Auth Header:%s\n", auth_header);
+// Send HTTP request
  res = peer_signaling_http_request(
     &trans_if,
     "POST", strlen("POST"),
-    "dev-api.videosdk.live", strlen("dev-api.videosdk.live"),
-    "/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer", strlen("/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer"),
+    g_hostname, strlen(g_hostname),
+    g_path, strlen(g_path),
     auth_header, strlen(auth_header),
     body, strlen(body)
 );
+
+// res = peer_signaling_http_request(
+//     &trans_if,
+//     "POST", strlen("POST"),
+//     "dev-whip.videosdk.live", strlen("dev-whip.videosdk.live"),
+//     "/whep", strlen("/whep"),
+//     auth_header, strlen(auth_header),
+//     body, strlen(body));
+// printf("HTTP POST response: status code: %d\n", res.statusCode);
+//   if (res.pHeaders == NULL || res.pBody == NULL) {
+//     LOGE("POST response invalid");
+//     ssl_transport_disconnect(&net_ctx);
+//     return -1;
+//   }
+
+  // if (res.pHeaders) {
+  //   char *location_line = strstr((char *)res.pHeaders, "Location:");
+  //   if (location_line) {
+  //     location_line += 9;
+  //     while (*location_line == ' ') location_line++;
+  //     char *end = strstr(location_line, "\r\n");
+  //     if (!end) end = strstr(location_line, "\n");
+  //     if (end && (end - location_line) < sizeof(resource_url)) {
+  //       strncpy(resource_url, location_line, end - location_line);
+  //       resource_url[end - location_line] = '\0';
+
+  //       // Strip scheme and host if present
+  //       if (strncmp(resource_url, "https://", 8) == 0) {
+  //         char *path_start = strchr(resource_url + 8, '/');
+  //         if (path_start) {
+  //           memmove(resource_url, path_start, strlen(path_start) + 1);
+  //         } else {
+  //           LOGE("Invalid Location URL: No path found.");
+  //           ssl_transport_disconnect(&net_ctx);
+  //           return -1;
+  //         }
+  //       }
+
+  //       printf("Extracted Resource Path: %s\n", resource_url);
+  //     } else {
+  //       printf("Failed to parse Location header.\n");
+  //     }
+  //   } else {
+  //     printf("Location header not found.\n");
+  //   }
+  // }
+
   
+
+
 
 // char auth_header[256];
 // snprintf(auth_header, sizeof(auth_header), "%s", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI1MzE0YzVkZC0wN2MzLTRjZTgtYThmYi03ZmY0ZDZiMDdhYTIiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTc1MTI2MTQ4MCwiZXhwIjoxNzgyNzk3NDgwfQ.yMH2talasjiL7ftJt2hl9h6_L96G1YU_tjujycAEi9M");
@@ -339,6 +393,7 @@ printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
 //     auth_header, strlen(auth_header),
 //   body, strlen(body)
 // );       
+
 
   ssl_transport_disconnect(&net_ctx);
 
@@ -381,6 +436,52 @@ static void peer_signaling_mqtt_event_cb(MQTTContext_t* mqtt_ctx,
     default:
       break;
   }
+}
+
+int delete_peer_from_meeting() {
+  printf("Deleting peer from meeting: %s\n", resource_url);
+  TransportInterface_t trans_if;
+  HTTPResponse_t res;
+  NetworkContext_t net_ctx;
+int ret = 0;
+  //Initialize transport interface
+  // if (transport_init(&trans_if, "dev-api.videosdk.live", 443,auth_header ) < 0) {
+  //   LOGE("Failed to initialize transport");
+  //   return -1;
+  // }
+  ret = ssl_transport_connect(&net_ctx, "dev-api.videosdk.live", 443, NULL);
+
+printf("Auth Header:%s\n", auth_header);
+  if (strlen(resource_url) == 0) {
+    LOGE("Resource URL is empty");
+    return -1;
+  }
+
+  // Initialize transport
+
+ trans_if.recv = ssl_transport_recv;
+  trans_if.send = ssl_transport_send;
+  trans_if.pNetworkContext = &net_ctx;
+
+  //Send HTTP DELETE request
+  printf("HTTP DELETE request: %s %s\n", "DELETE", resource_url);
+     res = peer_signaling_http_request(&trans_if, "DELETE", strlen("DELETE"), "dev-api.videosdk.live", strlen("dev-api.videosdk.live"), resource_url,
+                                      strlen(resource_url), auth_header, strlen(auth_header), g_body, strlen(g_body));
+  printf("HTTP DELETE response: status code: %d\n", res.statusCode);
+  if (res.pHeaders == NULL || res.pBody == NULL) {
+    LOGE("DELETE response invalid");
+   // ssl_transport_disconnect(&net_ctx);
+    return -1;
+  }
+
+  if (res.statusCode == 204) {
+    LOGI("Peer removed from meeting successfully");
+  } else {
+    LOGE("Failed to remove peer from meeting");
+  }
+
+ // ssl_transport_disconnect(&net_ctx);
+  return 0;
 }
 
 static int peer_signaling_mqtt_connect(const char* hostname, int port) {
@@ -511,6 +612,21 @@ int peer_signaling_whip_connect() {
   return 0;
 }
 
+
+int peer_signaling_whep_connect() {
+  if (g_ps.pc == NULL) {
+    LOGW("PeerConnection is NULL");
+    return -1;
+  } else if (g_ps.http_port <= 0) {
+    LOGW("Invalid HTTP port number: %d", g_ps.http_port);
+    return -1;
+  }
+
+  peer_connection_create_offer(g_ps.pc);
+  return 0;
+}
+
+
 void peer_signaling_whip_disconnect() {
   // TODO: implement
 }
@@ -557,6 +673,10 @@ void peer_signaling_leave_channel() {
 
 void peer_signaling_set_config(ServiceConfiguration* service_config) {
   char* pos;
+
+   g_hostname = service_config->hostname;
+  g_token = service_config->auth_token;
+  g_path = service_config->path;
 
   memset(&g_ps, 0, sizeof(g_ps));
 

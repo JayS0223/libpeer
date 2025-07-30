@@ -6,11 +6,11 @@
 #include "sdkconfig.h"
 #include "settings.h"
 
-static const char *TAG = "Board";
+static const char *TAG_TAG = "Board";
 
 void init_board(void)
 {
-    ESP_LOGI(TAG, "Init board.");
+    ESP_LOGI(TAG_TAG, "Init board.");
     set_codec_board_type(TEST_BOARD_NAME);
     // Notes when use playback and record at same time, must set reuse_dev = false
     codec_init_cfg_t cfg = {

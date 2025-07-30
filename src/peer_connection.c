@@ -12,6 +12,7 @@
 #include "rtcp.h"
 #include "rtp.h"
 #include "sctp.h"
+#include <stdbool.h>
 #include "sdp.h"
 
 #define STATE_CHANGED(pc, curr_state)                                 \
@@ -26,10 +27,9 @@ struct PeerConnection {
   Agent agent;
   DtlsSrtp dtls_srtp;
   Sctp sctp;
-
+ time_t last_binding_request_time;
   Sdp local_sdp;
   Sdp remote_sdp;
-  time_t last_binding_request_time;
 
   void (*onicecandidate)(char* sdp, void* user_data);
   void (*oniceconnectionstatechange)(PeerConnectionState state, void* user_data);
@@ -52,6 +52,8 @@ struct PeerConnection {
   uint32_t remote_vssrc;
 };
 
+bool g_subscribe = false;
+bool g_publish = false;
 static void peer_connection_outgoing_rtp_packet(uint8_t* data, size_t size, void* user_data) {
   PeerConnection* pc = (PeerConnection*)user_data;
   dtls_srtp_encrypt_rtp_packet(&pc->dtls_srtp, data, (int*)&size);
@@ -158,17 +160,23 @@ void* peer_connection_get_sctp(PeerConnection* pc) {
   return &pc->sctp;
 }
 
-PeerConnection* peer_connection_create(PeerConfiguration* config) {
+PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish, bool subscribe) {
+  printf("Creating peer connection publish %d \n", publish);
+   printf("Creating peer connection subscribe %d \n", subscribe);
   PeerConnection* pc = calloc(1, sizeof(PeerConnection));
   if (!pc) {
     return NULL;
   }
-
+    g_subscribe = subscribe;
+    g_publish = publish;
   memcpy(&pc->config, config, sizeof(PeerConfiguration));
 
   agent_create(&pc->agent);
 
   memset(&pc->sctp, 0, sizeof(pc->sctp));
+  
+  // Initialize DTLS-SRTP structure to prevent crashes
+  memset(&pc->dtls_srtp, 0, sizeof(pc->dtls_srtp));
 
   if (pc->config.audio_codec) {
 
@@ -195,6 +203,9 @@ PeerConnection* peer_connection_create(PeerConfiguration* config) {
 void peer_connection_destroy(PeerConnection* pc) {
   if (pc) {
     agent_destroy(&pc->agent);
+    
+    // Clean up DTLS-SRTP resources
+    dtls_srtp_deinit(&pc->dtls_srtp);
 
     free(pc);
     pc = NULL;
@@ -241,16 +252,58 @@ int peer_connection_datachannel_send_sid(PeerConnection* pc, char* message, size
 }
 
 static char* peer_connection_dtls_role_setup_value(DtlsSrtpRole d) {
-  return d == DTLS_SRTP_ROLE_SERVER ? "a=setup:actpass" : "a=setup:active";
+  return "a=setup:actpass";
+}
+void sdp_force_recvonly(Sdp* sdp) {
+  // Replace all a=sendrecv or a=sendonly with a=recvonly
+  char* p = sdp->content;
+  while ((p = strstr(p, "a=sendrecv")) || (p = strstr(p, "a=sendonly"))) {
+    memcpy(p, "a=recvonly", strlen("a=recvonly"));
+    p += strlen("a=recvonly");
+  }
 }
 
+char* create_recvonly_offer(PeerConnection* pc) {
+  memset(&pc->local_sdp, 0, sizeof(pc->local_sdp));
+
+  // Only set up the SDP with recvonly streams
+  sdp_create(&pc->local_sdp,
+             pc->config.video_codec != CODEC_NONE,
+             pc->config.audio_codec != CODEC_NONE,
+             pc->config.datachannel);
+
+  if (pc->config.video_codec == CODEC_H264) {
+    sdp_append_h264(&pc->local_sdp);
+
+    // Indicate fingerprint if DTLS is enabled
+    sdp_append(&pc->local_sdp, "a=fingerprint:sha-256 %s", pc->dtls_srtp.local_fingerprint);
+
+    // Setup attribute for DTLS role
+    sdp_append(&pc->local_sdp, "a=setup:actpass");
+  }
+
+  // Overwrite all media directions with recvonly
+  sdp_force_recvonly(&pc->local_sdp);
+
+  return pc->local_sdp.content;
+}
+
+
 static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int isOfferer) {
+  printf("peer_connection_state_new\n");
   char* description = (char*)pc->temp_buf;
 
   memset(pc->temp_buf, 0, sizeof(pc->temp_buf));
 
   dtls_srtp_reset_session(&pc->dtls_srtp);
+  printf("peer_connection_state_new: dtls_srtp reset\n");
+  // for(int i = 0; i< 10; i++){
+  //   vTaskDelay(pdMS_TO_TICKS(10));
+  // }
+  vTaskDelay(pdMS_TO_TICKS(180));
+
   dtls_srtp_init(&pc->dtls_srtp, role, pc);
+  printf("peer_connection_state_new: dtls_srtp initialized\n");
   pc->dtls_srtp.udp_recv = peer_connection_dtls_srtp_recv;
   pc->dtls_srtp.udp_send = peer_connection_dtls_srtp_send;
 
@@ -309,6 +362,7 @@ static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int
       sdp_append(&pc->local_sdp, "a=fingerprint:sha-256 %s", pc->dtls_srtp.local_fingerprint);
       sdp_append(&pc->local_sdp, peer_connection_dtls_role_setup_value(role));
       strcat(pc->local_sdp.content, description);
+      break;
 
     default:
       break;
@@ -328,7 +382,150 @@ static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int
   }
 }
 
+// static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int isOfferer) {
+//   LOGI(">>> Entered peer_connection_state_new");
+
+//   // if (!pc) {
+//   //   LOGE("PeerConnection is NULL");
+//   //   return;
+//   // }
+
+//   // if (!pc->temp_buf) {
+//   //   LOGE("pc->temp_buf is NULL");
+//   //   return;
+//   // }
+
+//   char* description = (char*)pc->temp_buf;
+//   memset(pc->temp_buf, 0, sizeof(pc->temp_buf));
+//   LOGI("temp_buf cleared");
+//   LOGI("checking pc->dtls_srtp ptr: %p", &pc->dtls_srtp);
+//   heap_caps_check_integrity_all(true); // optional heap check
+  
+  
+  
+//   // Initialize DTLS-SRTP first, then reset if needed
+//   int init_result = dtls_srtp_init(&pc->dtls_srtp, role, pc);
+//   if (init_result != 0) {
+//     LOGE("DTLS-SRTP initialization failed with code %d", init_result);
+//     return;
+//   }
+//   LOGI("DTLS-SRTP session initialized with role %d", role);
+//   pc->dtls_srtp.udp_recv = peer_connection_dtls_srtp_recv;
+//   pc->dtls_srtp.udp_send = peer_connection_dtls_srtp_send;
+//   LOGI("DTLS-SRTP session initialized with udp_recv and udp_send callbacks");
+
+//   pc->sctp.connected = 0;
+
+//   if (isOfferer) {
+//     LOGI("Offerer: clearing candidates and setting mode CONTROLLING");
+//     agent_clear_candidates(&pc->agent);
+//     pc->agent.mode = AGENT_MODE_CONTROLLING;
+//   } else {
+//     LOGI("Answerer: setting mode CONTROLLED");
+//     pc->agent.mode = AGENT_MODE_CONTROLLED;
+//   }
+
+//   LOGI("Gathering host candidate");
+//   agent_gather_candidate(&pc->agent, NULL, NULL, NULL);  // host address
+
+//   LOGI("Checking ICE servers...");
+//   for (int i = 0; i < sizeof(pc->config.ice_servers) / sizeof(pc->config.ice_servers[0]); ++i) {
+//     if (pc->config.ice_servers[i].urls) {
+//       LOGI("Gathering ICE server candidate: %s", pc->config.ice_servers[i].urls);
+//       agent_gather_candidate(&pc->agent, pc->config.ice_servers[i].urls,
+//                              pc->config.ice_servers[i].username,
+//                              pc->config.ice_servers[i].credential);
+//     }
+//   }
+
+//   LOGI("Getting local ICE description");
+//   agent_get_local_description(&pc->agent, description, sizeof(pc->temp_buf));
+//   LOGI("Local ICE description populated");
+
+//   memset(&pc->local_sdp, 0, sizeof(pc->local_sdp));
+//   LOGI("SDP cleared");
+
+//   sdp_create(&pc->local_sdp,
+//              pc->config.video_codec != CODEC_NONE,
+//              pc->config.audio_codec != CODEC_NONE,
+//              pc->config.datachannel);
+//   LOGI("SDP created (video: %d, audio: %d, dc: %d)",
+//         pc->config.video_codec != CODEC_NONE,
+//         pc->config.audio_codec != CODEC_NONE,
+//         pc->config.datachannel);
+
+//   // if (!pc->local_sdp.content) {
+//   //   LOGE("local_sdp.content is NULL — this will crash strcat!");
+//   //   return;
+//   // }
+
+//   // VIDEO
+//   if (pc->config.video_codec == CODEC_H264) {
+//     LOGI("Appending H264 to SDP");
+//     sdp_append_h264(&pc->local_sdp);
+//     sdp_append(&pc->local_sdp, "a=fingerprint:sha-256 %s", pc->dtls_srtp.local_fingerprint);
+//     sdp_append(&pc->local_sdp, peer_connection_dtls_role_setup_value(role));
+//     strcat(pc->local_sdp.content, description);
+//   }
+
+//   // AUDIO
+//   switch (pc->config.audio_codec) {
+//     case CODEC_PCMA:
+//       LOGI("Appending PCMA to SDP");
+//       sdp_append_pcma(&pc->local_sdp);
+//       sdp_append(&pc->local_sdp, "a=fingerprint:sha-256 %s", pc->dtls_srtp.local_fingerprint);
+//       sdp_append(&pc->local_sdp, peer_connection_dtls_role_setup_value(role));
+//       strcat(pc->local_sdp.content, description);
+//       break;
+
+//     case CODEC_PCMU:
+//       LOGI("Appending PCMU to SDP");
+//       sdp_append_pcmu(&pc->local_sdp);
+//       sdp_append(&pc->local_sdp, "a=fingerprint:sha-256 %s", pc->dtls_srtp.local_fingerprint);
+//       sdp_append(&pc->local_sdp, peer_connection_dtls_role_setup_value(role));
+//       strcat(pc->local_sdp.content, description);
+//       break;
+
+//     case CODEC_OPUS:
+//       LOGI("Appending OPUS to SDP");
+//       sdp_append_opus(&pc->local_sdp);
+//       sdp_append(&pc->local_sdp, "a=fingerprint:sha-256 %s", pc->dtls_srtp.local_fingerprint);
+//       sdp_append(&pc->local_sdp, peer_connection_dtls_role_setup_value(role));
+//       strcat(pc->local_sdp.content, description);
+//       break;
+
+//     default:
+//       LOGI("No matching audio codec");
+//       break;
+//   }
+
+//   // DATA CHANNEL
+//   if (pc->config.datachannel) {
+//     LOGI("Appending DataChannel to SDP");
+//     sdp_append_datachannel(&pc->local_sdp);
+//     sdp_append(&pc->local_sdp, "a=fingerprint:sha-256 %s", pc->dtls_srtp.local_fingerprint);
+//     sdp_append(&pc->local_sdp, peer_connection_dtls_role_setup_value(role));
+//     strcat(pc->local_sdp.content, description);
+//   }
+
+//   pc->b_local_description_created = 1;
+//   LOGI("Local SDP complete");
+
+//   if (pc->onicecandidate) {
+//     LOGI("Calling onicecandidate callback");
+//     pc->onicecandidate(pc->local_sdp.content, pc->config.user_data);
+//   } else {
+//     LOGW("onicecandidate callback is NULL");
+//   }
+
+//   LOGI("<<< Exiting peer_connection_state_new");
+// }
+
+
+
 int peer_connection_loop(PeerConnection* pc) {
+  printf("peer_connection_loop publish %d \n", g_publish);
+   printf("peer_connection_loop subscribe %d \n", g_subscribe);
 
   uint32_t ssrc = 0;
   memset(pc->agent_buf, 0, sizeof(pc->agent_buf));
@@ -336,9 +533,22 @@ int peer_connection_loop(PeerConnection* pc) {
 
   switch (pc->state) {
     case PEER_CONNECTION_NEW:
-
+      printf("PEER_CONNECTION_NEW\n");
       if (!pc->b_local_description_created) {
-        peer_connection_state_new(pc, DTLS_SRTP_ROLE_SERVER, 1);
+        if (g_subscribe) {
+         printf("Creating recvonly offer\n");
+          peer_connection_state_new(pc, DTLS_SRTP_ROLE_CLIENT, 0);
+        } else if (g_publish) {
+            printf("Creating sendrecv offer\n");
+          peer_connection_state_new(pc, DTLS_SRTP_ROLE_SERVER, 1);
+          printf("peer connection state new\n");
+        } else {
+          LOGE("Invalid state for peer connection");
+          return -1;
+        }
+      //  peer_connection_state_new(pc, DTLS_SRTP_ROLE_SERVER, 1);
+      }else {
+        printf("Local description already created\n");
       }
       break;
 
@@ -401,7 +611,12 @@ int peer_connection_loop(PeerConnection* pc) {
 
         if (rtcp_probe(pc->agent_buf, pc->agent_ret)) {
           LOGD("Got RTCP packet");
-          dtls_srtp_decrypt_rtcp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
+          int decrypt_status = dtls_srtp_decrypt_rtp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
+          if (decrypt_status != 0) {
+              LOGE("SRTP decryption failed with code %d", decrypt_status);
+              return 0;
+          }
+          // dtls_srtp_decrypt_rtcp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
           peer_connection_incoming_rtcp(pc, pc->agent_buf, pc->agent_ret);
 
         } else if (dtls_srtp_probe(pc->agent_buf)) {
@@ -459,15 +674,15 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
   Agent* agent = &pc->agent;
 
   while ((line = strstr(start, "\r\n"))) {
+    
     line = strstr(start, "\r\n");
     strncpy(buf, start, line - start);
     buf[line - start] = '\0';
 
     if (strstr(buf, "a=setup:passive")) {
-      printf("DTLS role: passive\n");
       role = DTLS_SRTP_ROLE_CLIENT;
     }
-
+  
     if (strstr(buf, "a=fingerprint")) {
       strncpy(pc->dtls_srtp.remote_fingerprint, buf + 22, DTLS_SRTP_FINGERPRINT_LENGTH);
     }
@@ -477,6 +692,7 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
         (strncmp(buf + strlen("a=ice-ufrag:"), agent->remote_ufrag, strlen(agent->remote_ufrag)) == 0)) {
       is_update = 1;
     }
+
 
     if (strstr(buf, "m=video")) {
       ssrc = &pc->remote_vssrc;
@@ -500,11 +716,14 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
     peer_connection_state_new(pc, role, 0);
   }
 
+
   agent_set_remote_description(&pc->agent, (char*)sdp_text);
+  printf("Setting remote description\n");
   STATE_CHANGED(pc, PEER_CONNECTION_CHECKING);
 }
 
 void peer_connection_create_offer(PeerConnection* pc) {
+  printf("Creating peer connection offer\n");
   STATE_CHANGED(pc, PEER_CONNECTION_NEW);
   pc->b_local_description_created = 0;
 }
@@ -531,8 +750,11 @@ void peer_connection_on_receiver_packet_loss(PeerConnection* pc,
                                              void (*on_receiver_packet_loss)(float fraction_loss, uint32_t total_loss, void* userdata)) {
   pc->on_receiver_packet_loss = on_receiver_packet_loss;
 }
+int counter4 = 0;
 
 void peer_connection_onicecandidate(PeerConnection* pc, void (*onicecandidate)(char* sdp_text, void* userdata)) {
+printf("Counter inside the peer_connection_onicecandidate:%d", counter4);
+counter4++;
   pc->onicecandidate = onicecandidate;
 }
 
