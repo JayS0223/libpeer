@@ -276,20 +276,20 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
     return -1;
   }
 
-  ret = ssl_transport_connect(&net_ctx, "dev.whip-whep.videosdk.live", 443, NULL);
+  ret = ssl_transport_connect(&net_ctx, "dev-whip.videosdk.live", 443, NULL);
 
   if (ret < 0) {
-    LOGE("Failed to connect to %s:%d", "dev.whip-whep.videosdk.live", 443);
+    LOGE("Failed to connect to %s:%d", "dev-whip.videosdk.live", 443);
     return ret;
   }
-  // snprintf(auth_header, sizeof(auth_header), "%s", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig");
-  // printf("Auth Header:%s\n", auth_header);
+  snprintf(auth_header, sizeof(auth_header), "%s", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig");
+  printf("Auth Header:%s\n", auth_header);
 
-  // res = peer_signaling_http_request(&trans_if, "POST", 4, "dev-whip.videosdk.live", strlen("dev-whip.videosdk.live"), "/whip",
-  //                                   strlen("/whip"), auth_header , strlen(auth_header), body, strlen(body));
+  res = peer_signaling_http_request(&trans_if, "POST", 4, "dev-whip.videosdk.live", strlen("dev-whip.videosdk.live"), "/whip",
+                                    strlen("/whip"), auth_header , strlen(auth_header), body, strlen(body));
 
-    res = peer_signaling_http_request(&trans_if, "POST", 4, "dev.whip-whep.videosdk.live", strlen("dev.whip-whep.videosdk.live"), "/whip/endpoint/abc123",
-                                    strlen("/whip/endpoint/abc123"), NULL , 0, body, strlen(body));
+    // res = peer_signaling_http_request(&trans_if, "POST", 4, "dev.whip-whep.videosdk.live", strlen("dev.whip-whep.videosdk.live"), "/whip/endpoint/abc123",
+    //                                 strlen("/whip/endpoint/abc123"), NULL , 0, body, strlen(body));
    ssl_transport_disconnect(&net_ctx);
 
   if (res.pHeaders == NULL) {
