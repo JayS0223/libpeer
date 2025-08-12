@@ -189,6 +189,7 @@ static void peer_signaling_on_pub_event(const char* msg, size_t size) {
     cJSON_Delete(req);
   }
 }
+char auth_header[1024];
 
 HTTPResponse_t peer_signaling_http_request(const TransportInterface_t* transport_interface,
                                            const char* method,
@@ -250,23 +251,46 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
   trans_if.recv = ssl_transport_recv;
   trans_if.send = ssl_transport_send;
   trans_if.pNetworkContext = &net_ctx;
-
+//   char * sdp_offer = "v=0\n"
+// "o=- 1495799811084970 1495799811084970 IN IP4 0.0.0.0\n"
+// "s=-\n"
+// "t=0 0\n"
+// "a=msid-semantic: iot\n"
+// "a=group:BUNDLE audio\n"
+// "m=audio 9 UDP/TLS/RTP/SAVP 8\n"
+// "a=rtpmap:8 PCMA/8000\n"
+// "a=ssrc:4 cname:webrtc-pcma\n"
+// "a=sendrecv\n"
+// "a=mid:audio\n"
+// "c=IN IP4 0.0.0.0\n"
+// "a=rtcp-mux\n"
+// "a=fingerprint:sha-256 64:30:2B:AB:7B:40:31:CB:6C:3F:B6:64:92:B3:4B:FB:D4:AA:B4:3E:71:D6:21:BF:89:A8:8D:F1:AC:18:71:0D\n"
+// "a=setup:passive\n"
+// "a=ice-ufrag:ZDXN\n"
+// "a=ice-pwd:ZDXNo1fRzbX5ftIe5iKC26zr\n"
+// "a=candidate:1 1 UDP 2127635967 192.168.207.221 53541 typ host\n"
+// "a=candidate:2 1 UDP 1691428351 152.59.35.154 53541 typ srflx raddr 0.0.0.0 rport 0\n";
+  printf("SDP offer %s", body);
   if (port <= 0) {
     LOGE("Invalid port number: %d", port);
     return -1;
   }
 
-  ret = ssl_transport_connect(&net_ctx, hostname, port, NULL);
+  ret = ssl_transport_connect(&net_ctx, "dev.whip-whep.videosdk.live", 443, NULL);
 
   if (ret < 0) {
-    LOGE("Failed to connect to %s:%d", hostname, port);
+    LOGE("Failed to connect to %s:%d", "dev.whip-whep.videosdk.live", 443);
     return ret;
   }
+  // snprintf(auth_header, sizeof(auth_header), "%s", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig");
+  // printf("Auth Header:%s\n", auth_header);
 
-  res = peer_signaling_http_request(&trans_if, "POST", 4, hostname, strlen(hostname), path,
-                                    strlen(path), auth, strlen(auth), body, strlen(body));
+  // res = peer_signaling_http_request(&trans_if, "POST", 4, "dev-whip.videosdk.live", strlen("dev-whip.videosdk.live"), "/whip",
+  //                                   strlen("/whip"), auth_header , strlen(auth_header), body, strlen(body));
 
-  ssl_transport_disconnect(&net_ctx);
+    res = peer_signaling_http_request(&trans_if, "POST", 4, "dev.whip-whep.videosdk.live", strlen("dev.whip-whep.videosdk.live"), "/whip/endpoint/abc123",
+                                    strlen("/whip/endpoint/abc123"), NULL , 0, body, strlen(body));
+   ssl_transport_disconnect(&net_ctx);
 
   if (res.pHeaders == NULL) {
     LOGE("Response headers are NULL");

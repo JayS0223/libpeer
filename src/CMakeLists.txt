@@ -1,6 +1,6 @@
 project(lib)
 
-file(GLOB SRCS "*.c")
+file(GLOB SRCS "peer_connection.c" "peer_signaling.c" "ssl_transport.c" "*.c")
 
 file(GLOB HEADERS "peer.h" "peer_connection.h" "peer_signaling.h")
 
@@ -26,4 +26,6 @@ install(TARGETS peer
   LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/
   PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_PREFIX}/include/
 )
+
+
 

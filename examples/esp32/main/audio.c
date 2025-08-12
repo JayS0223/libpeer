@@ -37,10 +37,10 @@ esp_err_t audio_codec_init() {
 
   esp_audio_enc_register_default();
 
-  g711_cfg.sample_rate = ESP_AUDIO_SAMPLE_RATE_8K;
-  g711_cfg.channel = ESP_AUDIO_MONO;
-  g711_cfg.bits_per_sample = ESP_AUDIO_BIT16;
-
+    g711_cfg.sample_rate = 8000;
+    g711_cfg.channel = 1;
+    g711_cfg.bits_per_sample = 16;
+    g711_cfg.frame_duration = 20;
   enc_cfg.type = ESP_AUDIO_TYPE_G711A;
   enc_cfg.cfg = &g711_cfg;
   enc_cfg.cfg_sz = sizeof(g711_cfg);

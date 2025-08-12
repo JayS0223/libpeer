@@ -451,59 +451,145 @@ int peer_connection_loop(PeerConnection* pc) {
   return 0;
 }
 
+// void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_text) {
+//   char* start = (char*)sdp_text;
+//   char* line = NULL;
+//   char buf[256];
+//   char* val_start = NULL;
+//   uint32_t* ssrc = NULL;
+//   DtlsSrtpRole role = DTLS_SRTP_ROLE_SERVER;
+//   int is_update = 0;
+//   Agent* agent = &pc->agent;
+
+//   while ((line = strstr(start, "\r\n"))) {
+//     line = strstr(start, "\r\n");
+//     strncpy(buf, start, line - start);
+//     buf[line - start] = '\0';
+
+//     if (strstr(buf, "a=setup:passive")) {
+//       role = DTLS_SRTP_ROLE_CLIENT;
+//     }
+
+//     if (strstr(buf, "a=fingerprint")) {
+//       strncpy(pc->dtls_srtp.remote_fingerprint, buf + 22, DTLS_SRTP_FINGERPRINT_LENGTH);
+//     }
+
+//     if (strstr(buf, "a=ice-ufrag") &&
+//         strlen(agent->remote_ufrag) != 0 &&
+//         (strncmp(buf + strlen("a=ice-ufrag:"), agent->remote_ufrag, strlen(agent->remote_ufrag)) == 0)) {
+//       is_update = 1;
+//     }
+
+//     if (strstr(buf, "m=video")) {
+//       ssrc = &pc->remote_vssrc;
+//     } else if (strstr(buf, "m=audio")) {
+//       ssrc = &pc->remote_assrc;
+//     }
+
+//     if ((val_start = strstr(buf, "a=ssrc:")) && ssrc) {
+//       *ssrc = strtoul(val_start + 7, NULL, 10);
+//       LOGD("SSRC: %" PRIu32, *ssrc);
+//     }
+
+//     start = line + 2;
+//   }
+
+//   if (is_update) {
+//     return;
+//   }
+
+//   if (!pc->b_local_description_created) {
+//     peer_connection_state_new(pc, role, 0);
+//   }
+
+//   agent_set_remote_description(&pc->agent, (char*)sdp_text);
+//   STATE_CHANGED(pc, PEER_CONNECTION_CHECKING);
+// }
+
 void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_text) {
-  char* start = (char*)sdp_text;
-  char* line = NULL;
-  char buf[256];
-  char* val_start = NULL;
-  uint32_t* ssrc = NULL;
-  DtlsSrtpRole role = DTLS_SRTP_ROLE_SERVER;
-  int is_update = 0;
-  Agent* agent = &pc->agent;
+    char* start = (char*)sdp_text;
+    char* line = NULL;
+    char buf[256];
+    char* val_start = NULL;
+    uint32_t* ssrc = NULL;
+    DtlsSrtpRole role = DTLS_SRTP_ROLE_SERVER;
+    int is_update = 0;
+    Agent* agent = &pc->agent;
 
-  while ((line = strstr(start, "\r\n"))) {
-    line = strstr(start, "\r\n");
-    strncpy(buf, start, line - start);
-    buf[line - start] = '\0';
+    // --- Step 1: Copy SDP to a modifiable buffer ---
+    const char *public_ip = "65.0.86.227";
+    char *modified_sdp = strdup(sdp_text);
 
-    if (strstr(buf, "a=setup:passive")) {
-      role = DTLS_SRTP_ROLE_CLIENT;
+    // List of IPs you want to replace (private candidates)
+    const char *ips_to_replace[] = { "10.51.55.66", "172.17.0.1" };
+
+    for (int i = 0; i < 2; i++) {
+        const char *old_ip = ips_to_replace[i];
+        char *pos = NULL;
+
+        while ((pos = strstr(modified_sdp, old_ip)) != NULL) {
+            size_t prefix_len = pos - modified_sdp;
+            size_t old_len = strlen(old_ip);
+            size_t new_len = strlen(public_ip);
+
+            char *temp = malloc(strlen(modified_sdp) - old_len + new_len + 1);
+            memcpy(temp, modified_sdp, prefix_len);
+            memcpy(temp + prefix_len, public_ip, new_len);
+            strcpy(temp + prefix_len + new_len, pos + old_len);
+
+            cfree(modified_sdp);
+            modified_sdp = temp;
+        }
     }
 
-    if (strstr(buf, "a=fingerprint")) {
-      strncpy(pc->dtls_srtp.remote_fingerprint, buf + 22, DTLS_SRTP_FINGERPRINT_LENGTH);
+    // --- Step 2: Process the modified SDP instead of the original ---
+    start = modified_sdp;
+    while ((line = strstr(start, "\r\n"))) {
+        line = strstr(start, "\r\n");
+        strncpy(buf, start, line - start);
+        buf[line - start] = '\0';
+
+        if (strstr(buf, "a=setup:passive")) {
+            role = DTLS_SRTP_ROLE_CLIENT;
+        }
+
+        if (strstr(buf, "a=fingerprint")) {
+            strncpy(pc->dtls_srtp.remote_fingerprint, buf + 22, DTLS_SRTP_FINGERPRINT_LENGTH);
+        }
+
+        if (strstr(buf, "a=ice-ufrag") &&
+            strlen(agent->remote_ufrag) != 0 &&
+            (strncmp(buf + strlen("a=ice-ufrag:"), agent->remote_ufrag, strlen(agent->remote_ufrag)) == 0)) {
+            is_update = 1;
+        }
+
+        if (strstr(buf, "m=video")) {
+            ssrc = &pc->remote_vssrc;
+        } else if (strstr(buf, "m=audio")) {
+            ssrc = &pc->remote_assrc;
+        }
+
+        if ((val_start = strstr(buf, "a=ssrc:")) && ssrc) {
+            *ssrc = strtoul(val_start + 7, NULL, 10);
+            LOGD("SSRC: %" PRIu32, *ssrc);
+        }
+
+        start = line + 2;
     }
 
-    if (strstr(buf, "a=ice-ufrag") &&
-        strlen(agent->remote_ufrag) != 0 &&
-        (strncmp(buf + strlen("a=ice-ufrag:"), agent->remote_ufrag, strlen(agent->remote_ufrag)) == 0)) {
-      is_update = 1;
+    if (is_update) {
+        cfree(modified_sdp);
+        return;
     }
 
-    if (strstr(buf, "m=video")) {
-      ssrc = &pc->remote_vssrc;
-    } else if (strstr(buf, "m=audio")) {
-      ssrc = &pc->remote_assrc;
+    if (!pc->b_local_description_created) {
+        peer_connection_state_new(pc, role, 0);
     }
 
-    if ((val_start = strstr(buf, "a=ssrc:")) && ssrc) {
-      *ssrc = strtoul(val_start + 7, NULL, 10);
-      LOGD("SSRC: %" PRIu32, *ssrc);
-    }
+    agent_set_remote_description(&pc->agent, modified_sdp);
+    STATE_CHANGED(pc, PEER_CONNECTION_CHECKING);
 
-    start = line + 2;
-  }
-
-  if (is_update) {
-    return;
-  }
-
-  if (!pc->b_local_description_created) {
-    peer_connection_state_new(pc, role, 0);
-  }
-
-  agent_set_remote_description(&pc->agent, (char*)sdp_text);
-  STATE_CHANGED(pc, PEER_CONNECTION_CHECKING);
+    cfree(modified_sdp);
 }
 
 void peer_connection_create_offer(PeerConnection* pc) {

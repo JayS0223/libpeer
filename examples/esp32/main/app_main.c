@@ -16,7 +16,8 @@
 #include "mdns.h"
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
-
+#include "peer_signaling.h"
+#include "peer_connection.h"
 #include "peer.h"
 
 static const char* TAG = "webrtc";
@@ -84,9 +85,10 @@ void app_main(void) {
     .ice_servers = {
         {.urls = "stun:stun.l.google.com:19302"}},
 #if defined(CONFIG_WHIP_URL)
-    .video_codec = CODEC_H264,
+   .audio_codec = CODEC_OPUS,
+   // .video_codec = CODEC_H264,
 #else
-    .audio_codec = CODEC_PCMA,
+    
     .datachannel = DATA_CHANNEL_BINARY,
 #endif
   };
@@ -133,7 +135,7 @@ void app_main(void) {
 #if defined(CONFIG_WHIP_URL)
   service_config.http_url = CONFIG_WHIP_URL;
   service_config.http_port = CONFIG_WHIP_PORT;
-  service_config.bearer_token = CONFIG_WHIP_BEARER_TOKEN;
+ // service_config.bearer_token = CONFIG_WHIP_BEARER_TOKEN;
 #else
   service_config.client_id = deviceid;
   service_config.mqtt_url = "broker.emqx.io";
