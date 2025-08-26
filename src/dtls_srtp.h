@@ -99,4 +99,8 @@ void dtls_srtp_encrypt_rtp_packet(DtlsSrtp* dtls_srtp, uint8_t* packet, int* byt
 
 void dtls_srtp_encrypt_rctp_packet(DtlsSrtp* dtls_srtp, uint8_t* packet, int* bytes);
 
+void print_local_certificate_details(DtlsSrtp* dtls_srtp);
+
+void print_remote_certificate_details(DtlsSrtp* dtls_srtp);
+
 #endif  // DTLS_SRTP_H_

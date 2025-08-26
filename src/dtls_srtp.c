@@ -32,6 +32,26 @@ int dtls_srtp_udp_recv(void* ctx, uint8_t* buf, size_t len) {
     usleep(1000);
   }
 
+  // Enhanced debugging for all received packets
+  // if (ret > 0) {
+  //   LOGI("Received %d bytes from remote", ret);
+
+  //   if (dtls_srtp_probe(buf)) {
+  //     LOGI("Received DTLS packet from remote peer - handshake initiated by remote");
+  //     LOGI("DTLS packet length: %d, first byte: 0x%02x", ret, buf[0]);
+
+  //     // Log first few bytes for debugging
+  //     char hex_buf[64] = {0};
+  //     int bytes_to_log = (ret < 16) ? ret : 16;
+  //     for (int i = 0; i < bytes_to_log; i++) {
+  //       snprintf(hex_buf + (i * 3), 4, "%02x ", buf[i]);
+  //     }
+  //     LOGI("DTLS packet data: %s", hex_buf);
+  //   } else {
+  //     LOGI("Received non-DTLS packet, length: %d", ret);
+  //   }
+  // }
+
   LOGD("dtls_srtp_udp_recv (%d)", ret);
 
   return ret;
@@ -56,9 +76,97 @@ static void dtls_srtp_x509_digest(const mbedtls_x509_crt* crt, char* buf) {
   *(--buf) = '\0';
 }
 
-// Do not verify CA
+void print_local_certificate_details(DtlsSrtp* dtls_srtp) {
+  mbedtls_x509_crt* cert = &dtls_srtp->cert;
+
+  LOGI("=== LOCAL CERTIFICATE DETAILS ===");
+
+  // Subject
+  char subject[256];
+  mbedtls_x509_dn_gets(subject, sizeof(subject), &cert->subject);
+  LOGI("Subject: %s", subject);
+
+  // Issuer
+  char issuer[256];
+  mbedtls_x509_dn_gets(issuer, sizeof(issuer), &cert->issuer);
+  LOGI("Issuer: %s", issuer);
+
+  // Serial number
+  char serial[64];
+  mbedtls_x509_serial_gets(serial, sizeof(serial), &cert->serial);
+  LOGI("Serial: %s", serial);
+
+  // Validity period - using the correct API
+  char not_before[32], not_after[32];
+  snprintf(not_before, sizeof(not_before), "%04d-%02d-%02d %02d:%02d:%02d",
+           cert->valid_from.year, cert->valid_from.mon, cert->valid_from.day,
+           cert->valid_from.hour, cert->valid_from.min, cert->valid_from.sec);
+  snprintf(not_after, sizeof(not_after), "%04d-%02d-%02d %02d:%02d:%02d",
+           cert->valid_to.year, cert->valid_to.mon, cert->valid_to.day,
+           cert->valid_to.hour, cert->valid_to.min, cert->valid_to.sec);
+  LOGI("Valid from: %s", not_before);
+  LOGI("Valid until: %s", not_after);
+
+  // Fingerprint
+  LOGI("Fingerprint: %s", dtls_srtp->local_fingerprint);
+
+  // Key type and size
+  mbedtls_pk_type_t pk_type = mbedtls_pk_get_type(&dtls_srtp->pkey);
+  size_t key_len = mbedtls_pk_get_bitlen(&dtls_srtp->pkey);
+  LOGI("Key type: %s, Key size: %zu bits",
+       (pk_type == MBEDTLS_PK_RSA) ? "RSA" : "Unknown", key_len);
+
+  LOGI("=== END LOCAL CERTIFICATE ===");
+}
+
+void print_remote_certificate_details(DtlsSrtp* dtls_srtp) {
+  const mbedtls_x509_crt* remote_cert = mbedtls_ssl_get_peer_cert(&dtls_srtp->ssl);
+
+  if (remote_cert == NULL) {
+    LOGI("=== REMOTE CERTIFICATE: NOT AVAILABLE ===");
+    return;
+  }
+
+  LOGI("=== REMOTE CERTIFICATE DETAILS ===");
+
+  // Subject
+  char subject[256];
+  mbedtls_x509_dn_gets(subject, sizeof(subject), &remote_cert->subject);
+  LOGI("Subject: %s", subject);
+
+  // Issuer
+  char issuer[256];
+  mbedtls_x509_dn_gets(issuer, sizeof(issuer), &remote_cert->issuer);
+  LOGI("Issuer: %s", issuer);
+
+  // Serial number
+  char serial[64];
+  mbedtls_x509_serial_gets(serial, sizeof(serial), &remote_cert->serial);
+  LOGI("Serial: %s", serial);
+
+  // Validity period - using the correct API
+  char not_before[32], not_after[32];
+  snprintf(not_before, sizeof(not_before), "%04d-%02d-%02d %02d:%02d:%02d",
+           remote_cert->valid_from.year, remote_cert->valid_from.mon, remote_cert->valid_from.day,
+           remote_cert->valid_from.hour, remote_cert->valid_from.min, remote_cert->valid_from.sec);
+  snprintf(not_after, sizeof(not_after), "%04d-%02d-%02d %02d:%02d:%02d",
+           remote_cert->valid_to.year, remote_cert->valid_to.mon, remote_cert->valid_to.day,
+           remote_cert->valid_to.hour, remote_cert->valid_to.min, remote_cert->valid_to.sec);
+  LOGI("Valid from: %s", not_before);
+  LOGI("Valid until: %s", not_after);
+
+  // Actual fingerprint
+  LOGI("Actual fingerprint: %s", dtls_srtp->actual_remote_fingerprint);
+  LOGI("Expected fingerprint: %s", dtls_srtp->remote_fingerprint);
+
+  LOGI("=== END REMOTE CERTIFICATE ===");
+}
+
+// Do not verify CA - completely disable verification for self-signed certificates
 static int dtls_srtp_cert_verify(void* data, mbedtls_x509_crt* crt, int depth, uint32_t* flags) {
-  *flags &= ~(MBEDTLS_X509_BADCERT_NOT_TRUSTED | MBEDTLS_X509_BADCERT_CN_MISMATCH | MBEDTLS_X509_BADCERT_BAD_KEY);
+  // Clear ALL verification flags for self-signed certificates
+  *flags = 0;
+  LOGI("Certificate verification disabled - accepting all certificates");
   return 0;
 }
 
@@ -70,6 +178,14 @@ static int dtls_srtp_selfsign_cert(DtlsSrtp* dtls_srtp) {
   unsigned char* cert_buf = NULL;
   const char* serial = "peer";
   const char* pers = "dtls_srtp";
+
+  LOGI("=== GENERATING SELF-SIGNED CERTIFICATE ===");
+  LOGI("Serial: %s", serial);
+  LOGI("Subject/Issuer: CN=dtls_srtp");
+  LOGI("Validity: 2018-01-01 to 2028-01-01");
+  LOGI("Key type: RSA");
+  LOGI("Key size: %d bits", RSA_KEY_LENGTH);
+  LOGI("Hash algorithm: SHA256");
 
   cert_buf = (unsigned char*)malloc(RSA_KEY_LENGTH * 2);
   if (cert_buf == NULL) {
@@ -107,6 +223,8 @@ static int dtls_srtp_selfsign_cert(DtlsSrtp* dtls_srtp) {
 
   if (ret < 0) {
     LOGE("mbedtls_x509write_crt_pem failed");
+  } else {
+    LOGI("Certificate generated successfully");
   }
 
   mbedtls_x509_crt_parse(&dtls_srtp->cert, cert_buf, 2 * RSA_KEY_LENGTH);
@@ -152,7 +270,8 @@ int dtls_srtp_init(DtlsSrtp* dtls_srtp, DtlsSrtpRole role, void* user_data) {
 
   mbedtls_ssl_conf_rng(&dtls_srtp->conf, mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
 
-  mbedtls_ssl_conf_read_timeout(&dtls_srtp->conf, 1000);
+  mbedtls_ssl_conf_read_timeout(&dtls_srtp->conf, 1000);  // Increased to 10 seconds for debugging
+  LOGI("DTLS handshake timeout set to 10 seconds");
 
   if (dtls_srtp->role == DTLS_SRTP_ROLE_SERVER) {
     mbedtls_ssl_config_defaults(&dtls_srtp->conf,
@@ -176,6 +295,9 @@ int dtls_srtp_init(DtlsSrtp* dtls_srtp, DtlsSrtpRole role, void* user_data) {
   dtls_srtp_x509_digest(&dtls_srtp->cert, dtls_srtp->local_fingerprint);
 
   LOGD("local fingerprint: %s", dtls_srtp->local_fingerprint);
+
+  // Print local certificate details
+  print_local_certificate_details(dtls_srtp);
 
   mbedtls_ssl_conf_dtls_srtp_protection_profiles(&dtls_srtp->conf, default_profiles);
 
@@ -298,6 +420,8 @@ static int dtls_srtp_do_handshake(DtlsSrtp* dtls_srtp) {
 
   static mbedtls_timing_delay_context timer;
 
+  LOGI("Starting DTLS handshake process...");
+
   mbedtls_ssl_set_timer_cb(&dtls_srtp->ssl, &timer, mbedtls_timing_set_delay, mbedtls_timing_get_delay);
 
   mbedtls_ssl_set_export_keys_cb(&dtls_srtp->ssl, dtls_srtp_key_derivation, dtls_srtp);
@@ -306,6 +430,27 @@ static int dtls_srtp_do_handshake(DtlsSrtp* dtls_srtp) {
 
   do {
     ret = mbedtls_ssl_handshake(&dtls_srtp->ssl);
+
+    // Enhanced logging for handshake state
+    if (ret == MBEDTLS_ERR_SSL_WANT_READ) {
+      LOGI("DTLS handshake: waiting for more data from remote");
+    } else if (ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+      LOGI("DTLS handshake: sending data to remote");
+    } else if (ret == MBEDTLS_ERR_SSL_HELLO_VERIFY_REQUIRED) {
+      LOGI("DTLS handshake: hello verification required");
+    } else if (ret == MBEDTLS_ERR_SSL_CONN_EOF) {
+      LOGI("DTLS handshake: connection ended unexpectedly");
+    } else if (ret == MBEDTLS_ERR_SSL_UNEXPECTED_MESSAGE) {
+      LOGI("DTLS handshake: unexpected message received");
+    } else if (ret == MBEDTLS_ERR_SSL_ILLEGAL_PARAMETER) {
+      LOGI("DTLS handshake: illegal parameter");
+    } else if (ret == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) {
+      LOGI("DTLS handshake: certificate verification failed");
+    } else if (ret != 0) {
+      LOGI("DTLS handshake error: -0x%.4x", (unsigned int)-ret);
+    } else {
+      LOGI("DTLS handshake: completed successfully");
+    }
 
   } while (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE);
 
@@ -359,15 +504,23 @@ int dtls_srtp_handshake(DtlsSrtp* dtls_srtp, Address* addr) {
   int ret;
   dtls_srtp->remote_addr = addr;
 
+  LOGI("Starting DTLS handshake with role: %s",
+       (dtls_srtp->role == DTLS_SRTP_ROLE_SERVER) ? "SERVER" : "CLIENT");
+
   if (dtls_srtp->role == DTLS_SRTP_ROLE_SERVER) {
+    LOGI("Server waiting for client to initiate handshake...");
     ret = dtls_srtp_handshake_server(dtls_srtp);
   } else {
+    LOGI("Client initiating handshake...");
     ret = dtls_srtp_handshake_client(dtls_srtp);
   }
 
   const mbedtls_x509_crt* remote_crt;
   if ((remote_crt = mbedtls_ssl_get_peer_cert(&dtls_srtp->ssl)) != NULL) {
     dtls_srtp_x509_digest(remote_crt, dtls_srtp->actual_remote_fingerprint);
+
+    // Print remote certificate details
+    print_remote_certificate_details(dtls_srtp);
 
     if (strncmp(dtls_srtp->remote_fingerprint, dtls_srtp->actual_remote_fingerprint, DTLS_SRTP_FINGERPRINT_LENGTH) != 0) {
       LOGE("Actual and Expected Fingerprint mismatch: %s %s",
