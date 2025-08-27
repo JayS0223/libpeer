@@ -200,7 +200,7 @@ init_config_t init_cfg = {
   init(&init_cfg);
   startPublishAudio(cfg_publish);
   vTaskDelay(pdMS_TO_TICKS(15000));
-  loop_log();
+//  loop_log();
   while (1) {
     printf("Waiting for task to complete from main\n");
     // peer_signaling_loop();
