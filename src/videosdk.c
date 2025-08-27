@@ -110,7 +110,9 @@ int init(init_config_t *cfg){
         return ESP_FAIL;
     }
     // add the error args here
+    #if defined(CONFIG_ESP32_S3_KORVO_2_V3_0_BOARD)
     init_board();
+    #endif
      peer_init();
 return 0;
 }
@@ -202,7 +204,7 @@ PeerConfiguration config = {
 
   task_args->pc = g_pc_subscribe;
 //  peer_connection_task(task_args);
- xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 16834, task_args, 5, &xPcTaskHandle, 1);
+ xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 8192, task_args, 5, &xPcTaskHandle, 1);
 //  xTaskCreate(
 //     peer_connection_task,   // Task function
 //     "peer_connection",      // Name for debugging
@@ -248,16 +250,16 @@ PeerConfiguration config = {
     .ice_servers = {
         {.urls = "stun:stun.l.google.com:19302"
         }},
-   .audio_codec = CODEC_PCMA,
+   .audio_codec = CODEC_OPUS,
   };
 
    g_pc_publish = peer_connection_create(&config, true, false);
    peer_connection_oniceconnectionstatechange(g_pc_publish, oniceconnectionstatechange);
  ServiceConfiguration service_config = SERVICE_CONFIG_DEFAULT(); 
   service_config.pc = g_pc_publish;
-  service_config.hostname = "dev-api.videosdk.live";
-  service_config.path = "/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer";
-  service_config.http_url = "dev-api.videosdk.live";
+  service_config.hostname = "dev-whip.videosdk.live";
+  service_config.path = "/whip";
+  service_config.http_url = "dev-whip.videosdk.live";
   service_config.http_port = 443;
   service_config.auth_token = g_token_videosdk;
   // set service config

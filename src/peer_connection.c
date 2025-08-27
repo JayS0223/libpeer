@@ -252,7 +252,7 @@ int peer_connection_datachannel_send_sid(PeerConnection* pc, char* message, size
 }
 
 static char* peer_connection_dtls_role_setup_value(DtlsSrtpRole d) {
-  return "a=setup:actpass";
+  return "a=setup:passive";
 }
 void sdp_force_recvonly(Sdp* sdp) {
   // Replace all a=sendrecv or a=sendonly with a=recvonly

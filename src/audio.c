@@ -111,21 +111,21 @@ esp_err_t audio_codec_init() {
  esp_audio_enc_register_default();
  
     int read_size = 0, out_size = 0;
-    g711_cfg.sample_rate = 8000;
-    g711_cfg.channel = 1;
-    g711_cfg.bits_per_sample = 16;
-    g711_cfg.frame_duration = 20;
+    // g711_cfg.sample_rate = 8000;
+    // g711_cfg.channel = 1;
+    // g711_cfg.bits_per_sample = 16;
+    // g711_cfg.frame_duration = 20;
 
-    // opus_enc_cfg.sample_rate = 16000;
-    // opus_enc_cfg.channel = 2;
-    // opus_enc_cfg.bits_per_sample = 16;
-    // opus_enc_cfg.frame_duration = ESP_OPUS_ENC_FRAME_DURATION_20_MS;
-    // opus_enc_cfg.application_mode = ESP_OPUS_ENC_APPLICATION_AUDIO;
+    opus_enc_cfg.sample_rate = 16000;
+    opus_enc_cfg.channel = 1;
+    opus_enc_cfg.bits_per_sample = 16;
+    opus_enc_cfg.frame_duration = ESP_OPUS_ENC_FRAME_DURATION_20_MS;
+    opus_enc_cfg.application_mode = ESP_OPUS_ENC_APPLICATION_AUDIO;
 
 
-    enc_cfg.type = ESP_AUDIO_TYPE_G711A;
-    enc_cfg.cfg = &g711_cfg;
-    enc_cfg.cfg_sz = sizeof(g711_cfg);
+    enc_cfg.type = ESP_AUDIO_TYPE_OPUS;
+    enc_cfg.cfg = &opus_enc_cfg;
+    enc_cfg.cfg_sz = sizeof(opus_enc_cfg);
 
 #if CONFIG_ESP32_S3_KORVO_2_V3_0_BOARD
    

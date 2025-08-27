@@ -195,11 +195,12 @@ init_config_t init_cfg = {
     .token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig",
     .displayName = "ESP32 Device",
   };
-  audio_codec_t cfg_publish = AUDIO_CODEC_G711A;
+  audio_codec_t cfg_publish = AUDIO_CODEC_OPUS;
   audio_codec_t cfg_subscribe = AUDIO_CODEC_OPUS;
   init(&init_cfg);
-  startPublishAudio(cfg_publish);
-  vTaskDelay(pdMS_TO_TICKS(15000));
+   startPublishAudio(cfg_publish);
+   //startSubscribeAudio(cfg_subscribe);
+    //vTaskDelay(pdMS_TO_TICKS(15000));
 //  loop_log();
   while (1) {
     printf("Waiting for task to complete from main\n");
