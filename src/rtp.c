@@ -162,6 +162,12 @@ static int rtp_encoder_encode_h264(RtpEncoder* rtp_encoder, uint8_t* buf, size_t
 
 static int rtp_encoder_encode_generic(RtpEncoder* rtp_encoder, uint8_t* buf, size_t size) {
   RtpHeader* rtp_header = (RtpHeader*)rtp_encoder->buf;
+  // Ensure we never write past the payload buffer
+  size_t max_payload = sizeof(rtp_encoder->buf) - sizeof(RtpHeader);
+  if (size > max_payload) {
+    // Truncate oversized payloads to prevent memory corruption
+    size = max_payload;
+  }
   rtp_header->version = 2;
   rtp_header->padding = 0;
   rtp_header->extension = 0;
@@ -234,6 +240,9 @@ void rtp_encoder_init(RtpEncoder* rtp_encoder, MediaCodec codec, RtpOnPacket on_
 }
 
 int rtp_encoder_encode(RtpEncoder* rtp_encoder, const uint8_t* buf, size_t size) {
+  if (rtp_encoder == NULL || rtp_encoder->encode_func == NULL) {
+    return -1;
+  }
   return rtp_encoder->encode_func(rtp_encoder, (uint8_t*)buf, size);
 }
 

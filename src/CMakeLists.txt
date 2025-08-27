@@ -1,6 +1,6 @@
 project(lib)
 
-file(GLOB SRCS "dtls_srtp.c" "ports.c" "peer_connection.c" "peer_signaling.c" "board.c" "videosdk.c" "audio.c" "rtcp.c" "*.c")
+file(GLOB SRCS "stun.c" "dtls_srtp.c" "peer_connection.c" "peer_signaling.c" "board.c" "videosdk.c" "audio.c" "rtcp.c" "*.c")
 
 file(GLOB HEADERS "peer.h" "peer_connection.h" "agent.c" "peer_signaling.h")
 
@@ -27,6 +27,6 @@ install(TARGETS peer
   PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_PREFIX}/include/
 )
 
-ude/
+e/
 )
 

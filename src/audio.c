@@ -137,7 +137,7 @@ esp_err_t audio_codec_init() {
     ESP_LOGI(TAG, "Record handle initialized: %p", record_handle);
 
     esp_codec_dev_sample_info_t fs = {
-        .sample_rate = 8000,
+        .sample_rate = 16000,
         .channel = 1,
         .bits_per_sample = 16,
     };
@@ -162,7 +162,7 @@ if (enc_err != ESP_AUDIO_ERR_OK || !enc_handle) {
     }
 
     aenc_in_frame.buffer = read_buf;
-    printf("Read buffer : %p",read_buf);
+    printf( "Read buffer : %p",read_buf);
     aenc_in_frame.len = read_size;
     aenc_out_frame.buffer = write_buf;
     aenc_out_frame.len = out_size;
@@ -220,12 +220,12 @@ esp_codec_dev_set_out_vol(i2s_cfg.play_handle, 100);
         .codec = AV_RENDER_AUDIO_CODEC_OPUS,
         .sample_rate = 16000,      // 8000 or 16000 based on your setup
         .channel = 1,             // 1 for mono
-        .bits_per_sample = 24,
+        .bits_per_sample = 16,
     };
       av_render_audio_frame_info_t aud_info = {
         .sample_rate = 16000,
         .channel = 1,
-        .bits_per_sample = 24,
+        .bits_per_sample = 16,
     };
     av_render_set_fixed_frame_info(player_sys.player, &aud_info);
 

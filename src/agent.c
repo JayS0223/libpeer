@@ -461,7 +461,7 @@ int agent_recv(Agent* agent, uint8_t* buf, int len) {
 
 void agent_set_remote_description(Agent* agent, char* description) {
   int i, j;
-  LOGD("Set remote description:\n%s", description);
+  LOGI("Set remote description:\n%s", description);
 
   char* line_start = description;
   char* line_end = NULL;
@@ -506,9 +506,9 @@ void agent_set_remote_description(Agent* agent, char* description) {
       line_start = line_end + 2;
   }
 
-  LOGD("remote ufrag: %s", agent->remote_ufrag);
-  LOGD("remote upwd: %s", agent->remote_upwd);
-  LOGD("Parsed %d remote candidates", agent->remote_candidates_count);
+  LOGI("remote ufrag: %s", agent->remote_ufrag);
+  LOGI("remote upwd: %s", agent->remote_upwd);
+  LOGI("Parsed %d remote candidates", agent->remote_candidates_count);
 
   // Generate candidate pairs
   agent->candidate_pairs_num = 0;
@@ -525,7 +525,7 @@ void agent_set_remote_description(Agent* agent, char* description) {
       }
   }
 
-  LOGD("candidate pairs num: %d", agent->candidate_pairs_num);
+  LOGI("candidate pairs num: %d", agent->candidate_pairs_num);
 }
 
 

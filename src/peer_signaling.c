@@ -259,8 +259,11 @@ HTTPResponse_t peer_signaling_http_request(const TransportInterface_t* transport
 char auth_header[1024];
 
  char resource_url[256] = {0};
+ char resource_url_publish[256] = {0};
+ char resource_url_subscribe[256] = {0};
  char *g_body = NULL;
 static int peer_signaling_http_post(const char* hostname, const char* path, int port, const char* auth, const char* body) {
+printf("Inside the http_post function");
   int ret = 0;
 g_body = (char*)body;
   TransportInterface_t trans_if = {0};
@@ -287,7 +290,7 @@ g_body = (char*)body;
 // "a=candidate:1 1 UDP 2127635967 192.168.207.221 53541 typ host\n"
 // "a=candidate:2 1 UDP 1691428351 152.59.35.154 53541 typ srflx raddr 0.0.0.0 rport 0\n";
 
-
+printf("Http_post_function above tje trans.if");
   trans_if.recv = ssl_transport_recv;
   trans_if.send = ssl_transport_send;
   trans_if.pNetworkContext = &net_ctx;
@@ -296,9 +299,9 @@ g_body = (char*)body;
     LOGE("Invalid port number: %d", port);
     return -1;
   }
-
+  printf("SSL transport_connect above it");
   ret = ssl_transport_connect(&net_ctx, hostname, port, NULL);
-
+ printf("SSL transport_connect below  it");
   if (ret < 0) {
     LOGE("Failed to connect to %s:%d", hostname, port);
     return ret;
@@ -320,6 +323,7 @@ printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
 snprintf(auth_header, sizeof(auth_header), "%s", g_token);
 printf("Auth Header:%s\n", auth_header);
 // Send HTTP request
+printf("Above the HTTP request");
  res = peer_signaling_http_request(
     &trans_if,
     "POST", strlen("POST"),
@@ -343,38 +347,45 @@ printf("Auth Header:%s\n", auth_header);
 //     return -1;
 //   }
 
-  // if (res.pHeaders) {
-  //   char *location_line = strstr((char *)res.pHeaders, "Location:");
-  //   if (location_line) {
-  //     location_line += 9;
-  //     while (*location_line == ' ') location_line++;
-  //     char *end = strstr(location_line, "\r\n");
-  //     if (!end) end = strstr(location_line, "\n");
-  //     if (end && (end - location_line) < sizeof(resource_url)) {
-  //       strncpy(resource_url, location_line, end - location_line);
-  //       resource_url[end - location_line] = '\0';
+//  if (res.pHeaders) {
+//   char *location_line = strstr((char *)res.pHeaders, "Location:");
+//   if (location_line) {
+//     location_line += 9;
+//     while (*location_line == ' ') location_line++;
+//     char *end = strstr(location_line, "\r\n");
+//     if (!end) end = strstr(location_line, "\n");
+//     if (end && (end - location_line) < sizeof(resource_url)) {
+//       strncpy(resource_url, location_line, end - location_line);
+//       resource_url[end - location_line] = '\0';
 
-  //       // Strip scheme and host if present
-  //       if (strncmp(resource_url, "https://", 8) == 0) {
-  //         char *path_start = strchr(resource_url + 8, '/');
-  //         if (path_start) {
-  //           memmove(resource_url, path_start, strlen(path_start) + 1);
-  //         } else {
-  //           LOGE("Invalid Location URL: No path found.");
-  //           ssl_transport_disconnect(&net_ctx);
-  //           return -1;
-  //         }
-  //       }
+//       if (strncmp(resource_url, "https://", 8) == 0) {
+//         char *path_start = strchr(resource_url + 8, '/');
+//         if (path_start) {
+//           memmove(resource_url, path_start, strlen(path_start) + 1);
+//         } else {
+//           LOGE("Invalid Location URL: No path found.");
+//           ssl_transport_disconnect(&net_ctx);
+//           return -1;
+//         }
+//       }
+//       printf("Extracted Resource Path: %s\n", resource_url);
+//       if (strstr(resource_url, "whip")) {
+//         strncpy(resource_url_publish, resource_url, sizeof(resource_url_publish) - 1);
+//         resource_url_publish[sizeof(resource_url_publish) - 1] = '\0';
+//         printf("Stored in resource_url_publish: %s\n", resource_url_publish);
+//       } else {
+//         strncpy(resource_url_subscribe, resource_url, sizeof(resource_url_subscribe) - 1);
+//         resource_url_subscribe[sizeof(resource_url_subscribe) - 1] = '\0';
+//         printf("Stored in resource_url_subscribe: %s\n", resource_url_subscribe);
+//       }
 
-  //       printf("Extracted Resource Path: %s\n", resource_url);
-  //     } else {
-  //       printf("Failed to parse Location header.\n");
-  //     }
-  //   } else {
-  //     printf("Location header not found.\n");
-  //   }
-  // }
-
+//     } else {
+//       printf("Failed to parse Location header.\n");
+//     }
+//   } else {
+//     printf("Location header not found.\n");
+//   }
+// }
   
 
 
@@ -440,6 +451,7 @@ static void peer_signaling_mqtt_event_cb(MQTTContext_t* mqtt_ctx,
 
 int delete_peer_from_meeting() {
   printf("Deleting peer from meeting: %s\n", resource_url);
+  printf("Removing the peer !!");
   TransportInterface_t trans_if;
   HTTPResponse_t res;
   NetworkContext_t net_ctx;
@@ -457,13 +469,20 @@ printf("Auth Header:%s\n", auth_header);
     return -1;
   }
 
-  // Initialize transport
+
 
  trans_if.recv = ssl_transport_recv;
   trans_if.send = ssl_transport_send;
   trans_if.pNetworkContext = &net_ctx;
-
-  //Send HTTP DELETE request
+if (resource_url_publish[0] != '\0') {
+  strncpy(resource_url, resource_url_publish, sizeof(resource_url) - 1);
+  resource_url[sizeof(resource_url) - 1] = '\0';
+} else {
+  strncpy(resource_url, resource_url_subscribe, sizeof(resource_url) - 1);
+  resource_url[sizeof(resource_url) - 1] = '\0';
+}
+printf("resource url : %s", resource_url);
+  
   printf("HTTP DELETE request: %s %s\n", "DELETE", resource_url);
      res = peer_signaling_http_request(&trans_if, "DELETE", strlen("DELETE"), "dev-api.videosdk.live", strlen("dev-api.videosdk.live"), resource_url,
                                       strlen(resource_url), auth_header, strlen(auth_header), g_body, strlen(g_body));
@@ -474,7 +493,7 @@ printf("Auth Header:%s\n", auth_header);
     return -1;
   }
 
-  if (res.statusCode == 204) {
+  if (res.statusCode == 200) {
     LOGI("Peer removed from meeting successfully");
   } else {
     LOGE("Failed to remove peer from meeting");
@@ -621,7 +640,7 @@ int peer_signaling_whep_connect() {
     LOGW("Invalid HTTP port number: %d", g_ps.http_port);
     return -1;
   }
-
+  printf("Inside the peer_signalling_whep_connect");
   peer_connection_create_offer(g_ps.pc);
   return 0;
 }

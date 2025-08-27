@@ -526,6 +526,7 @@ static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int
 int peer_connection_loop(PeerConnection* pc) {
   printf("peer_connection_loop publish %d \n", g_publish);
    printf("peer_connection_loop subscribe %d \n", g_subscribe);
+printf("PeerConnection address: %p\n", (void *)&pc);
 
   uint32_t ssrc = 0;
   memset(pc->agent_buf, 0, sizeof(pc->agent_buf));
@@ -533,7 +534,7 @@ int peer_connection_loop(PeerConnection* pc) {
 
   switch (pc->state) {
     case PEER_CONNECTION_NEW:
-      printf("PEER_CONNECTION_NEW\n");
+      printf("PEER_CONNECTION_NEW inside the loop\n");
       if (!pc->b_local_description_created) {
         if (g_subscribe) {
          printf("Creating recvonly offer\n");
@@ -725,6 +726,7 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
 void peer_connection_create_offer(PeerConnection* pc) {
   printf("Creating peer connection offer\n");
   STATE_CHANGED(pc, PEER_CONNECTION_NEW);
+  printf("Below the state changed !!");
   pc->b_local_description_created = 0;
 }
 

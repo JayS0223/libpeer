@@ -62,6 +62,8 @@ typedef enum {
 int init(init_config_t *cfg);
 int startPublishAudio(audio_codec_t cfg);
 int startSubscribeAudio(audio_codec_t cfg);
+int stopPublishAudio();
+void startSubscribeAudioTask();
 void loop_log();
 #ifdef __cplusplus
 

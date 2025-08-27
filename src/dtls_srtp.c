@@ -711,7 +711,7 @@ int dtls_srtp_init(DtlsSrtp* dtls_srtp, DtlsSrtpRole role, void* user_data) {
 
   mbedtls_ssl_conf_rng(&dtls_srtp->conf, mbedtls_ctr_drbg_random, &dtls_srtp->ctr_drbg);
 
-  mbedtls_ssl_conf_read_timeout(&dtls_srtp->conf, 1000);
+  mbedtls_ssl_conf_read_timeout(&dtls_srtp->conf, 10000);
 
   if (dtls_srtp->role == DTLS_SRTP_ROLE_SERVER) {
     mbedtls_ssl_config_defaults(&dtls_srtp->conf,
@@ -912,7 +912,7 @@ static int dtls_srtp_do_handshake(DtlsSrtp* dtls_srtp) {
 
   do {
     ret = mbedtls_ssl_handshake(&dtls_srtp->ssl);
-
+    printf("Rest inside the dtls file:%d",ret);
   } while (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE);
 
   return ret;
@@ -963,11 +963,14 @@ static int dtls_srtp_handshake_client(DtlsSrtp* dtls_srtp) {
 
 int dtls_srtp_handshake(DtlsSrtp* dtls_srtp, Address* addr) {
   int ret;
+  printf("Hello in side  %p",(void *) addr);
   dtls_srtp->remote_addr = addr;
 
   if (dtls_srtp->role == DTLS_SRTP_ROLE_SERVER) {
+    printf("Hello in side dtls_srtp_handshake_server");
     ret = dtls_srtp_handshake_server(dtls_srtp);
   } else {
+    printf("Hello in side dtls_srtp_handshake_client %p",(void *) dtls_srtp->remote_addr);
     ret = dtls_srtp_handshake_client(dtls_srtp);
   }
 

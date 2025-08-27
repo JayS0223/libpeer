@@ -40,7 +40,7 @@ extern void audio_decode_init();
 extern void audio_av_render_init();
 extern void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
 extern void removePeer();
-extern void startSubscribeAudioTask(void *arg);
+
 extern void loop_log();
 // SemaphoreHandle_t xSemaphore = NULL;
 
@@ -198,12 +198,16 @@ init_config_t init_cfg = {
   audio_codec_t cfg_publish = AUDIO_CODEC_OPUS;
   audio_codec_t cfg_subscribe = AUDIO_CODEC_OPUS;
   init(&init_cfg);
-   startPublishAudio(cfg_publish);
-   //startSubscribeAudio(cfg_subscribe);
-    //vTaskDelay(pdMS_TO_TICKS(15000));
-//  loop_log();
+  startPublishAudio(cfg_publish);
+   // vTaskDelay(pdMS_TO_TICKS(15000));
+ startSubscribeAudio(cfg_subscribe);
+   //startSubscribeAudioTask();
+     
+  
+ 
+
   while (1) {
-    printf("Waiting for task to complete from main\n");
+    //printf("Waiting for task to complete from main\n");
     // peer_signaling_loop();
     vTaskDelay(pdMS_TO_TICKS(10));
   }

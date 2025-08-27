@@ -85,9 +85,9 @@ int stun_set_mapped_address(char* value, uint8_t* mask, Address* addr) {
   *port = htons(addr->port) ^ *(uint16_t*)mask;
   addr_to_string(addr, addr_string, sizeof(addr_string));
 
-  LOGD("XOR Mapped Address Family: %d", *family);
-  LOGD("XOR Mapped Address Port: %d (Port XOR: %04x)", addr->port, *port);
-  LOGD("XOR Mapped Address IP: %s (IP XOR: %08x)", addr_string, *addr32);
+  // LOGI("XOR Mapped Address Family: %d", *family);
+  // LOGI("XOR Mapped Address Port: %d (Port XOR: %04x)", addr->port, *port);
+  // LOGI("XOR Mapped Address IP: %s (IP XOR: %08x)", addr_string, *addr32);
   return ret;
 }
 
