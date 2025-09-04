@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include "videosdk.h" 
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -38,11 +39,11 @@ typedef enum MediaCodec {
 
   /* Video */
   CODEC_H264,
-  CODEC_VP8,    // not implemented yet
-  CODEC_MJPEG,  // not implemented yet
+  CODEC_VP8,    
+  CODEC_MJPEG,  
 
   /* Audio */
-  CODEC_OPUS,  // not implemented yet
+  CODEC_OPUS,  
   CODEC_PCMA,
   CODEC_PCMU,
 
@@ -87,7 +88,7 @@ void peer_connection_destroy(PeerConnection* pc);
 
 void peer_connection_close(PeerConnection* pc);
 
-int peer_connection_loop(PeerConnection* pc);
+result_t peer_connection_loop(PeerConnection* pc);
 /**
  * @brief send message to data channel
  * @param[in] peer connection

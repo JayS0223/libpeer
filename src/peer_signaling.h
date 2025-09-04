@@ -2,7 +2,7 @@
 #define PEER_SIGNALING_H_
 
 #include "peer_connection.h"
-
+#include <core_http_client.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -51,6 +51,18 @@ void peer_signaling_leave_channel();
 
 int peer_signaling_loop();
 
+
+HTTPResponse_t peer_signaling_http_request(const TransportInterface_t* transport_interface,
+                                           const char* method,
+                                           size_t method_len,
+                                           const char* host,
+                                           size_t host_len,
+                                           const char* path,
+                                           size_t path_len,
+                                           const char* auth,
+                                           size_t auth_len,
+                                           const char* body,
+                                           size_t body_len);
 int delete_peer_from_meeting();
 
 #ifdef __cplusplus

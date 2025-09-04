@@ -262,6 +262,7 @@ char auth_header[1024];
  char resource_url_publish[256] = {0};
  char resource_url_subscribe[256] = {0};
  char *g_body = NULL;
+ 
 static int peer_signaling_http_post(const char* hostname, const char* path, int port, const char* auth, const char* body) {
 printf("Inside the http_post function");
   int ret = 0;
@@ -270,27 +271,7 @@ g_body = (char*)body;
   NetworkContext_t net_ctx;
   HTTPResponse_t res;
   LOGI("Sending offer %s", body);
-//   char * sdp_offer = "v=0\n"
-// "o=- 1495799811084970 1495799811084970 IN IP4 0.0.0.0\n"
-// "s=-\n"
-// "t=0 0\n"
-// "a=msid-semantic: iot\n"
-// "a=group:BUNDLE audio\n"
-// "m=audio 9 UDP/TLS/RTP/SAVP 8\n"
-// "a=rtpmap:8 PCMA/8000\n"
-// "a=ssrc:4 cname:webrtc-pcma\n"
-// "a=sendrecv\n"
-// "a=mid:audio\n"
-// "c=IN IP4 0.0.0.0\n"
-// "a=rtcp-mux\n"
-// "a=fingerprint:sha-256 64:30:2B:AB:7B:40:31:CB:6C:3F:B6:64:92:B3:4B:FB:D4:AA:B4:3E:71:D6:21:BF:89:A8:8D:F1:AC:18:71:0D\n"
-// "a=setup:passive\n"
-// "a=ice-ufrag:ZDXN\n"
-// "a=ice-pwd:ZDXNo1fRzbX5ftIe5iKC26zr\n"
-// "a=candidate:1 1 UDP 2127635967 192.168.207.221 53541 typ host\n"
-// "a=candidate:2 1 UDP 1691428351 152.59.35.154 53541 typ srflx raddr 0.0.0.0 rport 0\n";
-
-printf("Http_post_function above tje trans.if");
+printf("Http_post_function above the trans.if");
   trans_if.recv = ssl_transport_recv;
   trans_if.send = ssl_transport_send;
   trans_if.pNetworkContext = &net_ctx;
@@ -298,13 +279,6 @@ printf("Http_post_function above tje trans.if");
   if (port <= 0) {
     LOGE("Invalid port number: %d", port);
     return -1;
-  }
-  printf("SSL transport_connect above it");
-  ret = ssl_transport_connect(&net_ctx, hostname, port, NULL);
- printf("SSL transport_connect below  it");
-  if (ret < 0) {
-    LOGE("Failed to connect to %s:%d", hostname, port);
-    return ret;
   }
 
   // res = peer_signaling_http_request(&trans_if, "POST", 4, hostname, strlen(hostname), path,
@@ -314,24 +288,48 @@ printf("Http_post_function above tje trans.if");
 
 printf("HTTP post request: %s %s%s\n", "POST", hostname, path);
 
-  // Prepare HTTP request
-  // Note: The body is expected to be a valid SDP offer
   if (body == NULL || strlen(body) == 0) {
     LOGE("Body is NULL or empty");
     return -1;
   }
 snprintf(auth_header, sizeof(auth_header), "%s", g_token);
 printf("Auth Header:%s\n", auth_header);
-// Send HTTP request
 printf("Above the HTTP request");
- res = peer_signaling_http_request(
-    &trans_if,
-    "POST", strlen("POST"),
-    g_hostname, strlen(g_hostname),
-    g_path, strlen(g_path),
-    auth_header, strlen(auth_header),
-    body, strlen(body)
-);
+  {
+    int attempt;
+    memset(&res, 0, sizeof(res));
+    for (attempt = 0; attempt < 3; ++attempt) {
+      printf("SSL transport_connect above it");
+      ret = ssl_transport_connect(&net_ctx, hostname, port, NULL);
+      printf("SSL transport_connect below  it");
+      if (ret < 0) {
+        LOGE("Failed to connect to %s:%d", hostname, port);
+        return ret;
+      }
+
+      res = peer_signaling_http_request(
+          &trans_if,
+          "POST", strlen("POST"),
+          g_hostname, strlen(g_hostname),
+          g_path, strlen(g_path),
+          auth_header, strlen(auth_header),
+          body, strlen(body)
+      );
+
+      ssl_transport_disconnect(&net_ctx);
+
+      if (res.pHeaders == NULL) {
+        LOGW("POST attempt %d: response headers are NULL, retrying...", attempt + 1);
+        continue;
+      }
+      break;
+    }
+
+    if (res.pHeaders == NULL) {
+      LOGE("Response headers are NULL after 3 attempts");
+      return -1;
+    }
+  }
 
 // res = peer_signaling_http_request(
 //     &trans_if,
@@ -347,45 +345,45 @@ printf("Above the HTTP request");
 //     return -1;
 //   }
 
-//  if (res.pHeaders) {
-//   char *location_line = strstr((char *)res.pHeaders, "Location:");
-//   if (location_line) {
-//     location_line += 9;
-//     while (*location_line == ' ') location_line++;
-//     char *end = strstr(location_line, "\r\n");
-//     if (!end) end = strstr(location_line, "\n");
-//     if (end && (end - location_line) < sizeof(resource_url)) {
-//       strncpy(resource_url, location_line, end - location_line);
-//       resource_url[end - location_line] = '\0';
+ if (res.pHeaders) {
+  char *location_line = strstr((char *)res.pHeaders, "Location:");
+  if (location_line) {
+    location_line += 9;
+    while (*location_line == ' ') location_line++;
+    char *end = strstr(location_line, "\r\n");
+    if (!end) end = strstr(location_line, "\n");
+    if (end && (end - location_line) < sizeof(resource_url)) {
+      strncpy(resource_url, location_line, end - location_line);
+      resource_url[end - location_line] = '\0';
 
-//       if (strncmp(resource_url, "https://", 8) == 0) {
-//         char *path_start = strchr(resource_url + 8, '/');
-//         if (path_start) {
-//           memmove(resource_url, path_start, strlen(path_start) + 1);
-//         } else {
-//           LOGE("Invalid Location URL: No path found.");
-//           ssl_transport_disconnect(&net_ctx);
-//           return -1;
-//         }
-//       }
-//       printf("Extracted Resource Path: %s\n", resource_url);
-//       if (strstr(resource_url, "whip")) {
-//         strncpy(resource_url_publish, resource_url, sizeof(resource_url_publish) - 1);
-//         resource_url_publish[sizeof(resource_url_publish) - 1] = '\0';
-//         printf("Stored in resource_url_publish: %s\n", resource_url_publish);
-//       } else {
-//         strncpy(resource_url_subscribe, resource_url, sizeof(resource_url_subscribe) - 1);
-//         resource_url_subscribe[sizeof(resource_url_subscribe) - 1] = '\0';
-//         printf("Stored in resource_url_subscribe: %s\n", resource_url_subscribe);
-//       }
+      if (strncmp(resource_url, "https://", 8) == 0) {
+        char *path_start = strchr(resource_url + 8, '/');
+        if (path_start) {
+          memmove(resource_url, path_start, strlen(path_start) + 1);
+        } else {
+          LOGE("Invalid Location URL: No path found.");
+          ssl_transport_disconnect(&net_ctx);
+          return -1;
+        }
+      }
+      printf("Extracted Resource Path: %s\n", resource_url);
+      if (strstr(resource_url, "whip")) {
+        strncpy(resource_url_publish, resource_url, sizeof(resource_url_publish) - 1);
+        resource_url_publish[sizeof(resource_url_publish) - 1] = '\0';
+        printf("Stored in resource_url_publish: %s\n", resource_url_publish);
+      } else {
+        strncpy(resource_url_subscribe, resource_url, sizeof(resource_url_subscribe) - 1);
+        resource_url_subscribe[sizeof(resource_url_subscribe) - 1] = '\0';
+        printf("Stored in resource_url_subscribe: %s\n", resource_url_subscribe);
+      }
 
-//     } else {
-//       printf("Failed to parse Location header.\n");
-//     }
-//   } else {
-//     printf("Location header not found.\n");
-//   }
-// }
+    } else {
+      printf("Failed to parse Location header.\n");
+    }
+  } else {
+    printf("Location header not found.\n");
+  }
+}
   
 
 
@@ -406,7 +404,7 @@ printf("Above the HTTP request");
 // );       
 
 
-  ssl_transport_disconnect(&net_ctx);
+  ///ssl_transport_disconnect(&net_ctx);
 
   if (res.pHeaders == NULL) {
     LOGE("Response headers are NULL");

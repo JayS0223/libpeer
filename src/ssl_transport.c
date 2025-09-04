@@ -84,8 +84,8 @@ int ssl_transport_connect(NetworkContext_t* net_ctx,
   }
   mbedtls_ssl_conf_ca_chain(&net_ctx->conf, &net_ctx->cacert, NULL);
   */
-mbedtls_debug_set_threshold(4);
-mbedtls_ssl_conf_dbg(&net_ctx->conf, mbedtls_debug, stdout);  // You must define `mbedtls_debug` (see below)
+  mbedtls_debug_set_threshold(4);
+  mbedtls_ssl_conf_dbg(&net_ctx->conf, mbedtls_debug, stdout);  // You must define `mbedtls_debug` (see below)
   mbedtls_ssl_conf_rng(&net_ctx->conf, mbedtls_ctr_drbg_random, &net_ctx->ctr_drbg);
 
   if ((ret = mbedtls_ssl_setup(&net_ctx->ssl, &net_ctx->conf)) != 0) {
@@ -113,14 +113,28 @@ LOGI("ssl set hostname success: %s", host);
 
   LOGI("start to handshake");
 
-  while ((ret = mbedtls_ssl_handshake(&net_ctx->ssl)) != 0) {
-    if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-      LOGE("ssl handshake error: -0x%x", (unsigned int)-ret);
-    }
-  }
+    int retries = 0;
+    const int max_retries = 5;
 
-  LOGI("handshake success");
-  return 0;
+    while ((ret = mbedtls_ssl_handshake(&net_ctx->ssl)) != 0) {
+        if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
+            ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            
+            LOGE("ssl handshake error: -0x%x", (unsigned int)-ret);
+            
+            retries++;
+            if (retries >= max_retries) {
+                LOGE("ssl handshake failed after %d attempts", retries);
+                return -1;
+            }
+
+            // Delay 100ms before retry
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+    }
+
+    LOGI("ssl handshake successful");
+    return 0;
 }
 
 void ssl_transport_disconnect(NetworkContext_t* net_ctx) {

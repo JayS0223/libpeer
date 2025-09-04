@@ -8,7 +8,7 @@
 
 static const char *TAG_TAG = "Board";
 
-void init_board(void)
+int init_board(void)
 {
     ESP_LOGI(TAG_TAG, "Init board.");
     set_codec_board_type(TEST_BOARD_NAME);
@@ -18,5 +18,9 @@ void init_board(void)
         .in_use_tdm = true,
         .reuse_dev = false
     };
-    init_codec(&cfg);
+    if (init_codec(&cfg) != 0) {
+        ESP_LOGE(TAG_TAG, "Codec initialization failed");
+        return -1;
+    }
+    return 0;
 }

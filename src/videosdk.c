@@ -14,23 +14,24 @@
 #include "peer_signaling.h"
 #include "ssl_transport.h"
 #include "peer_connection.h"
-
-
-
+#include <stdbool.h>
+#include <core_http_client.h>
 
 #define MAX_HTTP_OUTPUT_BUFFER 512
 static const char* TAG = "videosdk";
-extern void init_board(void);
+extern int init_board(void);
 extern esp_err_t audio_codec_init();
 char *g_meetingId;
 char *g_token_videosdk;
 char *g_displayName;
+char *g_participantId;
  PeerConnection* g_pc_publish;
  PeerConnection* g_pc_subscribe;
  PeerConnectionState eState = PEER_CONNECTION_CLOSED;
 SemaphoreHandle_t xSemaphore_publish = NULL;
 SemaphoreHandle_t xSemaphore_subscribe = NULL;
-static TaskHandle_t xPcTaskHandle = NULL;
+static TaskHandle_t xPcTaskHandlePublish = NULL;
+static TaskHandle_t xPcTaskHandleSubscribe = NULL;
 static TaskHandle_t xAudioTaskHandle = NULL;
 static TaskHandle_t xSubscribeAudioTaskHandle = NULL;
 extern void audio_deinit(void);
@@ -38,7 +39,8 @@ extern esp_err_t audio_av_render_init();
 extern void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
 extern void audio_task(void* pvParameters);
 extern void removePeer();
-void startSubscribeAudioTask(); // Forward declaration
+extern void generate_random_string(char *str, int length);
+extern bool is_null_or_empty(const char *str);
 int64_t get_timestamp_videosdk() {
   struct timeval tv;
   gettimeofday(&tv, NULL);
@@ -49,76 +51,142 @@ typedef struct {
     PeerConnection* pc;
 } peer_connection_task_t;
 
-// char* create_meeting(const char *auth_token) {
-//   TransportInterface_t trans_if = {0};
-//   NetworkContext_t net_ctx;
-//   HTTPResponse_t res;
 
-//   const char *body = "";  // Empty body for POST
-//   int ret;
+create_meeting_result_t create_meeting(create_meeting_config_t *meetingConfig_t) {
+    TransportInterface_t trans_if = {0};
+    NetworkContext_t net_ctx;
+    HTTPResponse_t res;
+    char *body = malloc(256);
+    int ret;
 
-//   trans_if.recv = ssl_transport_recv;
-//   trans_if.send = ssl_transport_send;
-//   trans_if.pNetworkContext = &net_ctx;
+    if (!body) {
+        return (create_meeting_result_t){ MEMORY_ALLOC_FAILED, NULL };
+    }
 
-//   ret = ssl_transport_connect(&net_ctx, API_HOST, API_PORT, NULL);
-//   if (ret < 0) {
-//     ESP_LOGE(TAG, "Connection failed to %s:%d", API_HOST, API_PORT);
-//     return NULL;
-//   }
+    trans_if.recv = ssl_transport_recv;
+    trans_if.send = ssl_transport_send;
+    trans_if.pNetworkContext = &net_ctx;
 
-//   ESP_LOGI(TAG, "Calling VideoSDK /v2/rooms...");
-//   res = peer_signaling_http_request(
-//     &trans_if,
-//     "POST", strlen("POST"),
-//     API_HOST, strlen(API_HOST),
-//     "/v2/rooms", strlen("/v2/rooms"),
-//     auth_token, strlen(auth_token),
-//     body, strlen(body)
-//   );
+    
+    ret = ssl_transport_connect(&net_ctx, "dev-api.videosdk.live", 443, NULL);
+    if (ret < 0) {
+        free(body);
+        return (create_meeting_result_t){ SSL_CONNECT_FAILED, NULL };
+    }
 
-//   ssl_transport_disconnect(&net_ctx);
+    snprintf(body, 256, "{}");
+    
+    res = peer_signaling_http_request(
+        &trans_if,
+        "POST", strlen("POST"),
+        "dev-api.videosdk.live", strlen("dev-api.videosdk.live"),
+        "/v2/rooms", strlen("/v2/rooms"),
+        meetingConfig_t->token, strlen(meetingConfig_t->token),
+        body, strlen(body)
+    );
 
-//   if (res.pBody == NULL || res.statusCode != 200) {
-//     ESP_LOGE(TAG, "Create meeting failed. HTTP Status: %u", res.statusCode);
-//     return NULL;
-//   }
+    free(body);
+    ssl_transport_disconnect(&net_ctx);
 
-//   ESP_LOGI(TAG, "Response: %s", res.pBody);
+    if (res.pBody == NULL || res.statusCode != 200) {
+        ESP_LOGE(TAG, "Create meeting failed. HTTP Status: %u", res.statusCode);
+        return (create_meeting_result_t){ HTTP_REQUEST_FAILED, NULL };
+    }
+    const char *body_str = (const char *)res.pBody;
+    char *room_id_ptr = strstr(body_str, "\"roomId\":\"");
+ 
+    room_id_ptr += strlen("\"roomId\":\"");
+    char *end_quote = strchr(room_id_ptr, '"');
 
-//   // Simple extraction of "roomId" from JSON response
-//   // Assumes format: {"roomId":"abc123"} (naive parser for demo)
-// const char *body_str = (const char *)res.pBody;
-// char *room_id_ptr = strstr(body_str, "\"roomId\":\"");
-//   if (!room_id_ptr) return NULL;
+    size_t room_id_len = end_quote - room_id_ptr;
+    char *room_id = (char *)malloc(room_id_len + 1);
+    if (!room_id) {
+        return (create_meeting_result_t){ MEMORY_ALLOC_FAILED, NULL };
+    }
+    strncpy(room_id, room_id_ptr, room_id_len);
+    room_id[room_id_len] = '\0';
 
-//   room_id_ptr += strlen("\"roomId\":\""); // Move past the key
-//   char *end_quote = strchr(room_id_ptr, '"');
-//   if (!end_quote) return NULL;
+    return (create_meeting_result_t){ RESULT_OK, room_id };
+}
 
-//   size_t room_id_len = end_quote - room_id_ptr;
-//   char *room_id = (char *)malloc(room_id_len + 1);
-//   strncpy(room_id, room_id_ptr, room_id_len);
-//   room_id[room_id_len] = '\0';
-
-//   return room_id;
+// result_t init(init_config_t *cfg) {
+//     g_meetingId = cfg->meetingID;
+//     g_token_videosdk = cfg->token;
+//     g_displayName = cfg->displayName;
+//     g_participantId = cfg->participantId;
+//     if (g_meetingId == NULL || g_token_videosdk == NULL || g_displayName == NULL) {
+//         // ESP_LOGE(TAG, "Meeting ID, token or display name is NULL");
+//         return INIT_NULL_PARAMETER;
+//     }
+    
+//     // add the error args here
+//     #if defined(CONFIG_ESP32_S3_KORVO_2_V3_0_BOARD)
+//     if (init_board() != 0) {
+//         ESP_LOGE(TAG, "Board initialization failed");
+//         return INIT_BOARD_FAILED;
+//     }
+//     #endif
+    
+//     if (peer_init() != 0) {
+//         ESP_LOGE(TAG, "Peer initialization failed");
+//         return INIT_PEER_FAILED;
+//     }
+    
+//     return RESULT_OK;
 // }
 
-int init(init_config_t *cfg){
+result_t init(init_config_t *cfg) {
+    // Initialize random seed (should be done once in your application)
+    static bool rand_initialized = false;
+    if (!rand_initialized) {
+        srand((unsigned int)time(NULL));
+        rand_initialized = true;
+    }
+    
     g_meetingId = cfg->meetingID;
     g_token_videosdk = cfg->token;
-    g_displayName = cfg->displayName;
-    if (g_meetingId == NULL || g_token_videosdk == NULL || g_displayName == NULL) {
-        ESP_LOGE(TAG, "Meeting ID, token or display name is NULL");
-        return ESP_FAIL;
+    
+    // Handle participantId - generate random 6-character string if null/empty
+    if (is_null_or_empty(cfg->participantId)) {
+        static char generated_participant_id[7]; // 6 chars + null terminator
+        generate_random_string(generated_participant_id, 6);
+        g_participantId = generated_participant_id;
+        ESP_LOGI(TAG, "Generated participantId: %s", g_participantId);
+    } else {
+        g_participantId = cfg->participantId;
     }
-    // add the error args here
+    
+    // Handle displayName - generate random 8-character string if null/empty
+    if (is_null_or_empty(cfg->displayName)) {
+        static char generated_display_name[9]; // 8 chars + null terminator
+        generate_random_string(generated_display_name, 8);
+        g_displayName = generated_display_name;
+        ESP_LOGI(TAG, "Generated displayName: %s", g_displayName);
+    } else {
+        g_displayName = cfg->displayName;
+    }
+    
+    // Check for required parameters
+    if (g_meetingId == NULL || g_token_videosdk == NULL) {
+        ESP_LOGE(TAG, "Meeting ID or token is NULL");
+        return INIT_NULL_PARAMETER;
+    }
+    
     #if defined(CONFIG_ESP32_S3_KORVO_2_V3_0_BOARD)
-    init_board();
+    if (init_board() != 0) {
+        ESP_LOGE(TAG, "Board initialization failed");
+        return INIT_BOARD_FAILED;
+    }
     #endif
-     peer_init();
-return 0;
+    
+    if (peer_init() != 0) {
+        ESP_LOGE(TAG, "Peer initialization failed");
+        return INIT_PEER_FAILED;
+    }
+    
+    return RESULT_OK;
 }
+
 void loop_log(){
   ESP_LOGI(TAG, "Loop log started");
   for(int i = 0; i < 10; i++) {
@@ -128,7 +196,7 @@ void loop_log(){
 }
 
 
-static void oniceconnectionstatechange(PeerConnectionState state, void* user_data) {
+static void oniceconnectionstatechangePublish(PeerConnectionState state, void* user_data) {
   ESP_LOGI(TAG, "PeerConnectionState changed: %d (%s)", state, peer_connection_state_to_string(state));
   eState = state;
 
@@ -145,9 +213,45 @@ static void oniceconnectionstatechange(PeerConnectionState state, void* user_dat
       break;
     case PEER_CONNECTION_FAILED:
       ESP_LOGE(TAG, "PeerConnection FAILED");
+      stopPublishAudio(); 
       break;
     case PEER_CONNECTION_CLOSED:
       ESP_LOGW(TAG, "PeerConnection CLOSED");
+   //   stopPublishAudio();
+      break;
+    default:
+      break;
+  }
+}
+
+static void oniceconnectionstatechangeSubscribe(PeerConnectionState state, void* user_data) {
+  ESP_LOGI(TAG, "PeerConnectionState changed: %d (%s)", state, peer_connection_state_to_string(state));
+  eState = state;
+
+  // if (on_connection_state_changed_cb) {
+  //   on_connection_state_changed_cb(state);  // Invoke the user-defined callback
+  // }
+
+  switch (state) {
+    case PEER_CONNECTION_CONNECTED:
+      ESP_LOGI(TAG, "DTLS handshake completed, connection is now CONNECTED");
+      break;
+    case PEER_CONNECTION_COMPLETED:
+      ESP_LOGI(TAG, "ICE and DTLS completed, connection is now COMPLETED");
+      break;
+    case PEER_CONNECTION_FAILED:
+      ESP_LOGE(TAG, "PeerConnection FAILED");
+      if (xPcTaskHandleSubscribe != NULL) {
+        vTaskSuspend(xPcTaskHandleSubscribe);
+        ESP_LOGI(TAG, "Peer connection task suspended (subscribe)");
+      }
+      break;
+    case PEER_CONNECTION_CLOSED:
+      ESP_LOGW(TAG, "PeerConnection CLOSED");
+      if (xPcTaskHandleSubscribe != NULL) {
+        vTaskSuspend(xPcTaskHandleSubscribe);
+        ESP_LOGI(TAG, "Peer connection task suspended (subscribe)");
+      }
       break;
     default:
       break;
@@ -155,7 +259,7 @@ static void oniceconnectionstatechange(PeerConnectionState state, void* user_dat
 }
 
 void peer_connection_task_publish() {
-  ESP_LOGI(TAG, "peer_connection_task started");
+  ESP_LOGI(TAG, "peer_connection_task_publish started");
 
   for (;;) {
     int64_t ts = get_timestamp_videosdk();
@@ -184,16 +288,21 @@ void peer_connection_task_subscribe() {
 }
 
 
-int startSubscribeAudio(audio_codec_t cfg){
+result_t startSubscribeAudio(audio_codec_t cfg) {
   // start with av_render_init
-   xSemaphore_subscribe = xSemaphoreCreateMutex();
-   int ret =  audio_av_render_init();
-   if(ret >= 0){
-    ESP_LOGI(TAG, " AV render initialization successful");
-   }else {
+  xSemaphore_subscribe = xSemaphoreCreateMutex();
+  if (xSemaphore_subscribe == NULL) {
+    ESP_LOGE(TAG, "Failed to create subscribe mutex");
+    return SUBSCRIBE_MUTEX_CREATE_FAILED;
+  }
+  
+  int ret = audio_av_render_init();
+  if (ret >= 0) {
+    ESP_LOGI(TAG, "AV render initialization successful");
+  } else {
     ESP_LOGE(TAG, "AV render initialization failed");
-    return -1;
-   }
+    return SUBSCRIBE_AV_RENDER_FAILED;
+  }
 // peer_signaling
 PeerConfiguration config = {
     .ice_servers = {
@@ -204,41 +313,49 @@ PeerConfiguration config = {
   };
 
    g_pc_subscribe = peer_connection_create(&config, false, true);
-   peer_connection_oniceconnectionstatechange(g_pc_subscribe, oniceconnectionstatechange);
+   if (!g_pc_subscribe) {
+     ESP_LOGE(TAG, "Failed to create subscribe peer connection");
+     return SUBSCRIBE_PEER_CONNECTION_FAILED;
+   }
+   
+   peer_connection_oniceconnectionstatechange(g_pc_subscribe, oniceconnectionstatechangeSubscribe);
  ServiceConfiguration service_config = SERVICE_CONFIG_DEFAULT(); 
   service_config.pc = g_pc_subscribe;
-  service_config.hostname = "dev-whip.videosdk.live";
-  service_config.path = "/whep";
-  service_config.http_url = "dev-whip.videosdk.live";
+  // service_config.hostname = "dev-whip.videosdk.live";
+  // service_config.path = "/whep";
+  // service_config.http_url = "dev-whip.videosdk.live";
+  service_config.hostname = "dev-api.videosdk.live";
+  service_config.path = "/v2/whep?roomId=roye-pqdd-wbfl&participantId=whip-peer&remotePeerId=bbupzxbG";
+  service_config.http_url = "dev-api.videosdk.live";
   service_config.http_port = 443;
   service_config.auth_token = g_token_videosdk;
   // set service config
   printf("Setting service configuration: %s\n", service_config.auth_token);
    peer_signaling_set_config(&service_config);
 // whep connect request for create offer
-  peer_signaling_whep_connect();  
+  if (peer_signaling_whep_connect() != 0) {
+    ESP_LOGE(TAG, "WHEP connection failed");
+    return SUBSCRIBE_WHEP_CONNECT_FAILED;
+  }  
   peer_connection_task_t* task_args = malloc(sizeof(peer_connection_task_t));
+  if (!task_args) {
+    ESP_LOGE(TAG, "Failed to allocate memory for subscribe task");
+    return SUBSCRIBE_MEMORY_ALLOC_FAILED;
+  }
 
   task_args->pc = g_pc_subscribe;
-//  peer_connection_task(task_args);
- xTaskCreatePinnedToCore(peer_connection_task_subscribe, "peer_connection", 8192, task_args, 5, &xPcTaskHandle, 1);
-//  xTaskCreate(
-//     peer_connection_task,   // Task function
-//     "peer_connection",      // Name for debugging
-//     16834,                  // Stack size (in words)
-//     task_args,              // Argument to task
-//     5,                      // Priority
-//     &xPcTaskHandle          // Task handle
-// );
- while (1) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
- return 0;
+  
+  xPcTaskHandleSubscribe = xTaskCreatePinnedToCore(peer_connection_task_subscribe, "peer_connection", 8192, task_args, 5, &xPcTaskHandleSubscribe, 1);
+  if (xPcTaskHandleSubscribe == NULL) {
+    ESP_LOGE(TAG, "Failed to create subscribe task");
+    free(task_args);
+    return SUBSCRIBE_TASK_CREATE_FAILED;
+  }
+
+    
+    return RESULT_OK;
 }
 
-void startSubscribeAudioTask() {
- xTaskCreatePinnedToCore(startSubscribeAudio, "startSubscribeAudio", 8192, NULL, 5, NULL, 0);
-}
 
 
 
@@ -247,87 +364,25 @@ void startSubscribeAudioTask() {
 
 // }
 
-// int startPublishAudio(audio_codec_t cfg) {
-// printf("Inside the startPulish Function");
-// // start with audio_codec_init
-//    xSemaphore = xSemaphoreCreateMutex();
-//    int ret =  audio_codec_init();
-//    if(ret >= 0){
-//     ESP_LOGI(TAG, "Audio codec initialization successful");
-//    }else {
-//     ESP_LOGE(TAG, "Audio codec initialization failed");
-//     return -1;
-//    }
-// // peer_signaling
-// PeerConfiguration config = {
-//     .ice_servers = {
-//         {.urls = "stun:stun.l.google.com:19302"
-//         }},
-//    .audio_codec = CODEC_PCMA,
-//   };
-
-//    g_pc_publish = peer_connection_create(&config, true, false);
-//    peer_connection_oniceconnectionstatechange(g_pc_publish, oniceconnectionstatechange);
-//  ServiceConfiguration service_config = SERVICE_CONFIG_DEFAULT(); 
-//   service_config.pc = g_pc_publish;
-//   service_config.hostname = "dev-api.videosdk.live";
-//   service_config.path = "/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer";
-//   service_config.http_url = "dev-api.videosdk.live";
-//   service_config.http_port = 443;
-//   service_config.auth_token = g_token_videosdk;
-//   // set service config
-//   printf("Setting service configuration: %s\n", service_config.auth_token);
-//    peer_signaling_set_config(&service_config);
-// // whip connect request for create offer
-//   peer_signaling_whip_connect();
-
-// // add the audio task 
-//    StackType_t* stack_memory = (StackType_t*)heap_caps_malloc(16384 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
-//   StaticTask_t task_buffer;
-//   if (stack_memory) {
-//     xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 16384, NULL, 9, stack_memory, &task_buffer, 0);
-//   }
-//     peer_connection_task_t* task_args = malloc(sizeof(peer_connection_task_t));
-
-//   task_args->pc = g_pc_publish;
-// xTaskCreatePinnedToCore(peer_connection_task, "peer_connection", 16834, task_args, 5, &xPcTaskHandle, 1);
-//   while (1) {
-//    // printf("Time called %lld ms\n", get_timestamp_videosdk());
-//    // printf("Waiting for audio task to complete...\n");
-//    if(eState != PEER_CONNECTION_COMPLETED) {
-//       // 💡 Add a yield at the start to reset WDT even if blocked before
-//       taskYIELD();  // or esp_task_wdt_reset();
-//        vTaskDelay(pdMS_TO_TICKS(10));
-//     }else {
-//       break;
-//     }
-   
-//   }
-// return 0;
-// }
-
-int startPublishAudio(audio_codec_t cfg) {
+result_t startPublishAudio(audio_codec_t cfg) {
   printf("Inside the startPublish Function\n");
 
-  // ✅ Initialize a mutex for signaling if not already created
   if (xSemaphore_publish == NULL) {
    xSemaphore_publish = xSemaphoreCreateMutex();
     if (xSemaphore_publish == NULL) {
       ESP_LOGE(TAG, "Failed to create mutex");
-      return -1;
+      return PUBLISH_MUTEX_CREATE_FAILED;
     }
   }
 
-  // ✅ Start with audio codec init
-  int ret = audio_codec_init();
+  int ret = audio_codec_init(cfg);
   if (ret >= 0) {
     ESP_LOGI(TAG, "Audio codec initialization successful");
   } else {
     ESP_LOGE(TAG, "Audio codec initialization failed");
-    return -1;
+    return PUBLISH_AUDIO_CODEC_FAILED;
   }
 
-  // ✅ Peer connection config
   PeerConfiguration config = {
       .ice_servers = {
           {.urls = "stun:stun.l.google.com:19302"}},
@@ -337,35 +392,39 @@ int startPublishAudio(audio_codec_t cfg) {
   g_pc_publish = peer_connection_create(&config, true, false);
   if (!g_pc_publish) {
     ESP_LOGE(TAG, "Failed to create peer connection");
-    return -1;
+    return PUBLISH_PEER_CONNECTION_FAILED;
   }
 
-  peer_connection_oniceconnectionstatechange(g_pc_publish, oniceconnectionstatechange);
+  peer_connection_oniceconnectionstatechange(g_pc_publish, oniceconnectionstatechangePublish);
 
-  // ✅ Service config
   ServiceConfiguration service_config = SERVICE_CONFIG_DEFAULT();
   service_config.pc = g_pc_publish;
-  // service_config.hostname = "dev-api.videosdk.live";
-  // service_config.path = "/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer";
-  // service_config.http_url = "dev-api.videosdk.live";
   service_config.hostname = "dev-api.videosdk.live";
-  service_config.path = "/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer";
+  service_config.path = "/v2/whip?roomId=roye-pqdd-wbfl&participantId=whip-peer&displayName=whip-participant";
   service_config.http_url = "dev-api.videosdk.live";
   service_config.http_port = 443;
   service_config.auth_token = g_token_videosdk;
-  // set service config
+  
   printf("Setting service configuration: %s\n", service_config.auth_token);
-   peer_signaling_set_config(&service_config);
-// whip connect request for create offer
-  peer_signaling_whip_connect();
+  peer_signaling_set_config(&service_config);
+  
+  // whip connect request for create offer
+  if (peer_signaling_whip_connect() != 0) {
+    ESP_LOGE(TAG, "WHIP connection failed");
+    return PUBLISH_WHIP_CONNECT_FAILED;
+  }
 
   StaticTask_t *audio_task_buffer = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
-StackType_t *audio_stack = heap_caps_malloc(20480 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
+  StackType_t *audio_stack = heap_caps_malloc(20480 * sizeof(StackType_t), MALLOC_CAP_SPIRAM);
   if (audio_task_buffer && audio_stack) {
     xAudioTaskHandle = xTaskCreateStaticPinnedToCore(audio_task, "audio", 20480, NULL, 9, audio_stack, audio_task_buffer, 0);
+    if (xAudioTaskHandle == NULL) {
+      ESP_LOGE(TAG, "Failed to create audio task");
+      return PUBLISH_TASK_CREATE_FAILED;
+    }
   } else {
     ESP_LOGE(TAG, "Failed to allocate memory for audio task");
-    return -1;
+    return PUBLISH_MEMORY_ALLOC_FAILED;
   }
 
   StaticTask_t *pc_task_buffer = heap_caps_malloc(sizeof(StaticTask_t), MALLOC_CAP_INTERNAL);
@@ -373,10 +432,14 @@ StackType_t *audio_stack = heap_caps_malloc(20480 * sizeof(StackType_t), MALLOC_
   peer_connection_task_t *task_args = heap_caps_malloc(sizeof(peer_connection_task_t), MALLOC_CAP_INTERNAL);
   if (pc_task_buffer && pc_stack && task_args) {
     task_args->pc = g_pc_publish;
-    xPcTaskHandle = xTaskCreateStaticPinnedToCore(peer_connection_task_publish, "peer_connection", 16384, NULL, 5, pc_stack, pc_task_buffer, 1);
+    xPcTaskHandlePublish = xTaskCreateStaticPinnedToCore(peer_connection_task_publish, "peer_connection", 16384, NULL, 5, pc_stack, pc_task_buffer, 1);
+    if (xPcTaskHandlePublish == NULL) {
+      ESP_LOGE(TAG, "Failed to create peer connection task");
+      return PUBLISH_TASK_CREATE_FAILED;
+    }
   } else {
     ESP_LOGE(TAG, "Failed to allocate memory for peer_connection task");
-    return -1;
+    return PUBLISH_MEMORY_ALLOC_FAILED;
   }
 
   // ✅ Wait until peer connection completes using polling (could be replaced with event/semaphore)
@@ -387,7 +450,7 @@ StackType_t *audio_stack = heap_caps_malloc(20480 * sizeof(StackType_t), MALLOC_
   }
   printf("Peer connection completed successfully\n");
 
-  return 0;
+  return RESULT_OK;
 }
 void stop_publish_task(void *param) {
   ESP_LOGI(TAG, "Stopping audio and peer...");
@@ -402,19 +465,21 @@ void stop_publish_task(void *param) {
   delete_peer_from_meeting(); 
 
   // ✅ Suspend peer connection task
-  if (xPcTaskHandle != NULL) {
-    vTaskSuspend(xPcTaskHandle);
+  if (xPcTaskHandlePublish != NULL) {
+    vTaskSuspend(xPcTaskHandlePublish);
     ESP_LOGI(TAG, "Peer connection task suspended");
   }
 
-  // // ✅ Final cleanup
-  // removePeer();
+
 
   ESP_LOGI(TAG, "Publishing stopped");
 
-  vTaskDelete(NULL);  // Kill this task when done
+  vTaskDelete(NULL);  
 }
-int stopPublishAudio() {
-  xTaskCreatePinnedToCore(stop_publish_task, "stop_publish_task", 8192, NULL, 5, NULL, 0);
-  return 0;
+result_t stopPublishAudio() {
+  if (xTaskCreatePinnedToCore(stop_publish_task, "stop_publish_task", 8192, NULL, 5, NULL, 0) != pdPASS) {
+    ESP_LOGE(TAG, "Failed to create stop publish task");
+    return STOP_PUBLISH_TASK_CREATE_FAILED;
+  }
+  return RESULT_OK;
 }

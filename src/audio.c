@@ -19,6 +19,7 @@
 #include "codec_init.h"
 #include "peer_signaling.h"
 #include "videosdk.c"
+#include "videosdk.h"
 #define CUSTOM_HEADER_SIZE 16 
 typedef struct {
     audio_render_handle_t audio_render;
@@ -26,7 +27,6 @@ typedef struct {
 } player_system_t;
 
 extern TaskHandle_t xSubscribeAudioTaskHandle;
-extern void startSubscribeAudioTask(void *arg);
 static player_system_t  player_sys;
 
 #if defined(CONFIG_ESP32S3_XIAO)
@@ -86,12 +86,29 @@ static uint8_t* read_buf = NULL;
 static uint8_t* write_buf = NULL;
 
 
-esp_err_t audio_codec_init() {
+esp_err_t audio_codec_init(audio_codec_t cfg) {
+
 
 #if CONFIG_ESP32S3_XIAO
+
   i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
     ESP_ERROR_CHECK(i2s_new_channel(&chan_cfg, NULL, &rx_handle));
 
+    if(cfg == AUDIO_CODEC_OPUS){
+i2s_pdm_rx_config_t pdm_rx_cfg = {
+        .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(16000),
+        .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
+        .gpio_cfg = {
+            .clk = I2S_CLK_GPIO,
+            .din = I2S_DATA_GPIO,
+            .invert_flags = {
+                .clk_inv = false,
+            },
+        },
+    };
+ESP_ERROR_CHECK(i2s_channel_init_pdm_rx_mode(rx_handle, &pdm_rx_cfg));
+ ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
+}else {
     i2s_pdm_rx_config_t pdm_rx_cfg = {
         .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(8000),
         .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
@@ -103,18 +120,18 @@ esp_err_t audio_codec_init() {
             },
         },
     };
+ ESP_ERROR_CHECK(i2s_channel_init_pdm_rx_mode(rx_handle, &pdm_rx_cfg));
+ ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
+}
+    
 
-    ESP_ERROR_CHECK(i2s_channel_init_pdm_rx_mode(rx_handle, &pdm_rx_cfg));
-    ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
+   
 #endif
 
  esp_audio_enc_register_default();
  
     int read_size = 0, out_size = 0;
-    // g711_cfg.sample_rate = 8000;
-    // g711_cfg.channel = 1;
-    // g711_cfg.bits_per_sample = 16;
-    // g711_cfg.frame_duration = 20;
+    if(cfg ==AUDIO_CODEC_OPUS){
 
     opus_enc_cfg.sample_rate = 16000;
     opus_enc_cfg.channel = 1;
@@ -122,10 +139,27 @@ esp_err_t audio_codec_init() {
     opus_enc_cfg.frame_duration = ESP_OPUS_ENC_FRAME_DURATION_20_MS;
     opus_enc_cfg.application_mode = ESP_OPUS_ENC_APPLICATION_AUDIO;
 
-
     enc_cfg.type = ESP_AUDIO_TYPE_OPUS;
     enc_cfg.cfg = &opus_enc_cfg;
     enc_cfg.cfg_sz = sizeof(opus_enc_cfg);
+
+    } else if(cfg == AUDIO_CODEC_G711U){
+    g711_cfg.sample_rate = 8000;
+    g711_cfg.channel = 1;
+    g711_cfg.bits_per_sample = 16;
+    g711_cfg.frame_duration = 20; 
+    enc_cfg.type = ESP_AUDIO_TYPE_G711U;
+    enc_cfg.cfg = &g711_cfg;
+    enc_cfg.cfg_sz = sizeof(g711_cfg);
+    } else{
+    g711_cfg.sample_rate =8000;
+    g711_cfg.channel = 1;
+    g711_cfg.bits_per_sample = 16;
+    g711_cfg.frame_duration = 20; 
+    enc_cfg.type = ESP_AUDIO_TYPE_G711A;
+    enc_cfg.cfg = &g711_cfg;
+    enc_cfg.cfg_sz = sizeof(g711_cfg);
+    }
 
 #if CONFIG_ESP32_S3_KORVO_2_V3_0_BOARD
    
@@ -135,13 +169,24 @@ esp_err_t audio_codec_init() {
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "Record handle initialized: %p", record_handle);
-
+if(cfg == AUDIO_CODEC_OPUS){
     esp_codec_dev_sample_info_t fs = {
         .sample_rate = 16000,
         .channel = 1,
         .bits_per_sample = 16,
     };
+        esp_codec_dev_open(record_handle, &fs);
+    
+    } else {
+        esp_codec_dev_sample_info_t fs = {
+        .sample_rate = 8000,
+        .channel = 1,
+        .bits_per_sample = 16,
+    }; 
     esp_codec_dev_open(record_handle, &fs);
+    }
+   
+    
     
 
 #endif
@@ -299,7 +344,6 @@ int32_t audio_get_samples(uint8_t* buf, size_t size) {
         if (eState == PEER_CONNECTION_COMPLETED) {
             // 💡 Add a yield at the start to reset WDT even if blocked before
             taskYIELD();  // or esp_task_wdt_reset();
-        //   xTaskCreatePinnedToCore(startSubscribeAudioTask, "subscribe_audio", 16834, NULL, 5, &xSubscribeAudioTaskHandle, 1);
             ret = audio_get_samples(aenc_in_frame.buffer, aenc_in_frame.len);
             if (ret == aenc_in_frame.len) {
                 // Optional yield between major steps

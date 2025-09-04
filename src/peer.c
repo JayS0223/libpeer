@@ -9,6 +9,7 @@
 int peer_init() {
   if (srtp_init() != srtp_err_status_ok) {
     LOGE("libsrtp init failed");
+    return -1;
   }
 
   return 0;

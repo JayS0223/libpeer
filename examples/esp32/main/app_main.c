@@ -34,13 +34,13 @@ extern esp_err_t audio_init();
 extern void camera_task(void* pvParameters);
 extern void audio_task(void* pvParameters);
 extern esp_err_t audio_codec_init();
-extern void init_board();
+extern int init_board();
 //extern void audio_receive_g711a_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
 extern void audio_decode_init();
 extern void audio_av_render_init();
 extern void audio_receive_and_render(const uint8_t* encoded_data, size_t encoded_len, uint32_t timestamp);
 extern void removePeer();
-
+ const char *token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig";
 extern void loop_log();
 // SemaphoreHandle_t xSemaphore = NULL;
 
@@ -156,7 +156,26 @@ static void onclose(void* userdata) {
 //     vTaskDelay(pdMS_TO_TICKS(1));
 //   }
 // }
+// static void meeting_task(void *pvParameters)
+// {
+//     const char *auth_token = (const char *)pvParameters; 
+//     create_meeting_config_t createMeetingConfig = {
+//       .token = token,
+//       .customMeetingId = "jay-shah"
+//     };
+//     ESP_LOGI(TAG, "meeting_task started");
 
+//     char *room_id = create_meeting(&createMeetingConfig);
+//     if (room_id) {
+//         ESP_LOGI(TAG, "Created meeting roomId = %s", room_id);
+//         free(room_id);
+//     } else {
+//         ESP_LOGE(TAG, "Failed to create meeting");
+//     }
+
+//     ESP_LOGI(TAG, "meeting_task finished, deleting self");
+//     vTaskDelete(NULL);
+// }
 
 
 void app_main(void) {
@@ -186,24 +205,33 @@ void app_main(void) {
   }
 
   // xSemaphore = xSemaphoreCreateMutex();
-media_lib_add_default_adapter(); 
+  media_lib_add_default_adapter(); 
  
   media_lib_thread_set_schedule_cb(thread_scheduler);
 // char *meeting_id = create_meeting("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig");
+// BaseType_t ok = xTaskCreate(meeting_task, "meeting_task", 16384, (void *)token, 5, NULL);
+//   if (ok != pdPASS) {
+//       ESP_LOGE(TAG, "Failed to create meeting_task");
+//   }
 init_config_t init_cfg = {
     .meetingID = "roye-pqdd-wbfl",
-    .token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig",
+    .token = token,
     .displayName = "ESP32 Device",
+    .participantId = NULL,
+    
   };
   audio_codec_t cfg_publish = AUDIO_CODEC_OPUS;
-  audio_codec_t cfg_subscribe = AUDIO_CODEC_OPUS;
+  audio_codec_t subscribe = AUDIO_CODEC_OPUS;
   init(&init_cfg);
+  //  subs_cfg = {
+  //   .codec = subscribe,
+  //   .peerId = "qer46y57ui",
+  // };
   startPublishAudio(cfg_publish);
    // vTaskDelay(pdMS_TO_TICKS(15000));
- startSubscribeAudio(cfg_subscribe);
-   //startSubscribeAudioTask();
-     
+  startSubscribeAudio(subscribe);
   
+
  
 
   while (1) {
