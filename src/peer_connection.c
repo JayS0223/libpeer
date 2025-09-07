@@ -5,6 +5,7 @@
 
 #include "agent.h"
 
+#include <stdbool.h>
 #include "config.h"
 #include "dtls_srtp.h"
 #include "peer_connection.h"
@@ -12,7 +13,6 @@
 #include "rtcp.h"
 #include "rtp.h"
 #include "sctp.h"
-#include <stdbool.h>
 #include "sdp.h"
 
 #define STATE_CHANGED(pc, curr_state)                                 \
@@ -27,7 +27,7 @@ struct PeerConnection {
   Agent agent;
   DtlsSrtp dtls_srtp;
   Sctp sctp;
- time_t last_binding_request_time;
+  time_t last_binding_request_time;
   Sdp local_sdp;
   Sdp remote_sdp;
 
@@ -40,8 +40,6 @@ struct PeerConnection {
   uint8_t agent_buf[CONFIG_MTU];
   int agent_ret;
   int b_local_description_created;
-
-
 
   RtpEncoder artp_encoder;
   RtpEncoder vrtp_encoder;
@@ -161,25 +159,22 @@ void* peer_connection_get_sctp(PeerConnection* pc) {
 }
 
 PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish, bool subscribe) {
-  printf("Creating peer connection publish %d \n", publish);
-   printf("Creating peer connection subscribe %d \n", subscribe);
   PeerConnection* pc = calloc(1, sizeof(PeerConnection));
   if (!pc) {
     return NULL;
   }
-    g_subscribe = subscribe;
-    g_publish = publish;
+  g_subscribe = subscribe;
+  g_publish = publish;
   memcpy(&pc->config, config, sizeof(PeerConfiguration));
 
   agent_create(&pc->agent);
 
   memset(&pc->sctp, 0, sizeof(pc->sctp));
-  
+
   // Initialize DTLS-SRTP structure to prevent crashes
   memset(&pc->dtls_srtp, 0, sizeof(pc->dtls_srtp));
 
   if (pc->config.audio_codec) {
-
     rtp_encoder_init(&pc->artp_encoder, pc->config.audio_codec,
                      peer_connection_outgoing_rtp_packet, (void*)pc);
 
@@ -188,8 +183,6 @@ PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish, 
   }
 
   if (pc->config.video_codec) {
-
-
     rtp_encoder_init(&pc->vrtp_encoder, pc->config.video_codec,
                      peer_connection_outgoing_rtp_packet, (void*)pc);
 
@@ -203,7 +196,7 @@ PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish, 
 void peer_connection_destroy(PeerConnection* pc) {
   if (pc) {
     agent_destroy(&pc->agent);
-    
+
     // Clean up DTLS-SRTP resources
     dtls_srtp_deinit(&pc->dtls_srtp);
 
@@ -217,13 +210,12 @@ void peer_connection_close(PeerConnection* pc) {
 }
 
 int peer_connection_send_audio(PeerConnection* pc, const uint8_t* buf, size_t len) {
-  
   if (pc->state != PEER_CONNECTION_COMPLETED) {
     // LOGE("dtls_srtp not connected");
     return -1;
   }
 
-    return rtp_encoder_encode(&pc->artp_encoder, buf, len);
+  return rtp_encoder_encode(&pc->artp_encoder, buf, len);
 }
 
 int peer_connection_send_video(PeerConnection* pc, const uint8_t* buf, size_t len) {
@@ -232,7 +224,7 @@ int peer_connection_send_video(PeerConnection* pc, const uint8_t* buf, size_t le
     return -1;
   }
 
-   return rtp_encoder_encode(&pc->vrtp_encoder, buf, len);
+  return rtp_encoder_encode(&pc->vrtp_encoder, buf, len);
 }
 
 int peer_connection_datachannel_send(PeerConnection* pc, char* message, size_t len) {
@@ -288,22 +280,15 @@ char* create_recvonly_offer(PeerConnection* pc) {
   return pc->local_sdp.content;
 }
 
-
 static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int isOfferer) {
-  printf("peer_connection_state_new\n");
   char* description = (char*)pc->temp_buf;
 
   memset(pc->temp_buf, 0, sizeof(pc->temp_buf));
 
   dtls_srtp_reset_session(&pc->dtls_srtp);
-  printf("peer_connection_state_new: dtls_srtp reset\n");
-  // for(int i = 0; i< 10; i++){
-  //   vTaskDelay(pdMS_TO_TICKS(10));
-  // }
   vTaskDelay(pdMS_TO_TICKS(180));
 
   dtls_srtp_init(&pc->dtls_srtp, role, pc);
-  printf("peer_connection_state_new: dtls_srtp initialized\n");
   pc->dtls_srtp.udp_recv = peer_connection_dtls_srtp_recv;
   pc->dtls_srtp.udp_send = peer_connection_dtls_srtp_send;
 
@@ -400,9 +385,7 @@ static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int
 //   LOGI("temp_buf cleared");
 //   LOGI("checking pc->dtls_srtp ptr: %p", &pc->dtls_srtp);
 //   heap_caps_check_integrity_all(true); // optional heap check
-  
-  
-  
+
 //   // Initialize DTLS-SRTP first, then reset if needed
 //   int init_result = dtls_srtp_init(&pc->dtls_srtp, role, pc);
 //   if (init_result != 0) {
@@ -521,43 +504,31 @@ static void peer_connection_state_new(PeerConnection* pc, DtlsSrtpRole role, int
 //   LOGI("<<< Exiting peer_connection_state_new");
 // }
 
-
-
 result_t peer_connection_loop(PeerConnection* pc) {
-  printf("peer_connection_loop publish %d \n", g_publish);
-   printf("peer_connection_loop subscribe %d \n", g_subscribe);
-printf("PeerConnection address: %p\n", (void *)&pc);
-
   uint32_t ssrc = 0;
   memset(pc->agent_buf, 0, sizeof(pc->agent_buf));
   pc->agent_ret = -1;
 
   switch (pc->state) {
     case PEER_CONNECTION_NEW:
-      printf("PEER_CONNECTION_NEW inside the loop\n");
       if (!pc->b_local_description_created) {
         if (g_subscribe) {
-        
           peer_connection_state_new(pc, DTLS_SRTP_ROLE_CLIENT, 0);
         } else if (g_publish) {
-            printf("Creating sendrecv offer\n");
           peer_connection_state_new(pc, DTLS_SRTP_ROLE_SERVER, 1);
-          printf("peer connection state new\n");
         } else {
           LOGE("Invalid state for peer connection");
           return -1;
         }
-      //  peer_connection_state_new(pc, DTLS_SRTP_ROLE_SERVER, 1);
-      }else {
-      
-       STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-       return LOCAL_DESCRIPTION_ALREADY_CREATED;
+        //  peer_connection_state_new(pc, DTLS_SRTP_ROLE_SERVER, 1);
+      } else {
+        STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
+        return TASK_OVERRIDED;
       }
       break;
 
-      case PEER_CONNECTION_CHECKING:
+    case PEER_CONNECTION_CHECKING:
       if (agent_select_candidate_pair(&pc->agent) < 0) {
-
         STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
         return CANDIDATE_PAIR_FAILED;
       } else if (agent_connectivity_check(&pc->agent, 0) == 0) {
@@ -572,134 +543,64 @@ printf("PeerConnection address: %p\n", (void *)&pc);
 
         pc->last_binding_request_time = time(NULL);
         STATE_CHANGED(pc, PEER_CONNECTION_COMPLETED);
-      }else {
+      } else {
         LOGE("DTLS HandShake Failed");
-         STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-         return DTLS_HANDSHAKE_FAILED;
-         
+        STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
+        return DTLS_HANDSHAKE_FAILED;
       }
       break;
     case PEER_CONNECTION_COMPLETED:
-        LOGI("PEER_CONNECTION_COMPLETED %lld" , pc->last_binding_request_time);
-        time_t current_time = time(NULL);
-        LOGI("PEER_CONNECTION_COMPLETED %lld" , current_time);
-        LOGI("PEER_CONNECTION_COMPLETED %lld" , current_time - pc->last_binding_request_time);
-        if (current_time - pc->last_binding_request_time >= 8) {
-          agent_connectivity_check(&pc->agent, 1);
-          LOGI("heartbeat sent!");
-          pc->last_binding_request_time = current_time;
-        }
 
-    // Handle incoming data
-    if ((pc->agent_ret = agent_recv(&pc->agent, pc->agent_buf, sizeof(pc->agent_buf))) > 0) {
-        LOGD("agent_recv %d", pc->agent_ret);
+      time_t current_time = time(NULL);
+      if (current_time - pc->last_binding_request_time >= 8) {
+        agent_connectivity_check(&pc->agent, 1);
+        pc->last_binding_request_time = current_time;
+      }
 
+      // Handle incoming data
+      if ((pc->agent_ret = agent_recv(&pc->agent, pc->agent_buf, sizeof(pc->agent_buf))) > 0) {
         if (rtcp_probe(pc->agent_buf, pc->agent_ret)) {
-            LOGD("Got RTCP packet");
-            int decrypt_status = dtls_srtp_decrypt_rtp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
-            if (decrypt_status != 0) {
-                LOGE("SRTP decryption failed with code %d", decrypt_status);
-               // STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-                break;
-            }
-            peer_connection_incoming_rtcp(pc, pc->agent_buf, pc->agent_ret);
+          int decrypt_status = dtls_srtp_decrypt_rtp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
+          if (decrypt_status != 0) {
+            break;
+          }
+          peer_connection_incoming_rtcp(pc, pc->agent_buf, pc->agent_ret);
 
         } else if (dtls_srtp_probe(pc->agent_buf)) {
-            int ret = dtls_srtp_read(&pc->dtls_srtp, pc->temp_buf, sizeof(pc->temp_buf));
-            LOGD("Got DTLS data %d", ret);
-            if (ret < 0) {
-                LOGE("DTLS read failed in COMPLETED state");
-                STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-                break;
-            } else if (ret > 0) {
-                sctp_incoming_data(&pc->sctp, (char*)pc->temp_buf, ret);
-            }
+          int ret = dtls_srtp_read(&pc->dtls_srtp, pc->temp_buf, sizeof(pc->temp_buf));
+          if (ret < 0) {
+            STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
+            break;
+          } else if (ret > 0) {
+            sctp_incoming_data(&pc->sctp, (char*)pc->temp_buf, ret);
+          }
 
         } else if (rtp_packet_validate(pc->agent_buf, pc->agent_ret)) {
-            LOGD("Got RTP packet");
+          int decrypt_status = dtls_srtp_decrypt_rtp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
+          if (decrypt_status != 0) {
+            break;
+          }
 
-            int decrypt_status = dtls_srtp_decrypt_rtp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
-            if (decrypt_status != 0) {
-                LOGE("RTP decryption failed with code %d", decrypt_status);
-               // STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-                break;
-            }
-
-            ssrc = rtp_get_ssrc(pc->agent_buf);
-            if (ssrc == pc->remote_assrc) {
-                rtp_decoder_decode(&pc->artp_decoder, pc->agent_buf, pc->agent_ret);
-            } else if (ssrc == pc->remote_vssrc) {
-                rtp_decoder_decode(&pc->vrtp_decoder, pc->agent_buf, pc->agent_ret);
-            }
+          ssrc = rtp_get_ssrc(pc->agent_buf);
+          if (ssrc == pc->remote_assrc) {
+            rtp_decoder_decode(&pc->artp_decoder, pc->agent_buf, pc->agent_ret);
+          } else if (ssrc == pc->remote_vssrc) {
+            rtp_decoder_decode(&pc->vrtp_decoder, pc->agent_buf, pc->agent_ret);
+          }
 
         } else {
-            LOGW("Unknown data received in COMPLETED state");
-            // Optionally: consider this an error and fail
-            // STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
+          // Optionally: consider this an error and fail
+          // STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
         }
-    }
+      }
 
-    // Binding timeout → fail instead of close
-    if (KEEPALIVE_CONNCHECK > 0 && 
-        (ports_get_epoch_time() - pc->agent.binding_request_time) > KEEPALIVE_CONNCHECK) {
+      // Binding timeout → fail instead of close
+      if (KEEPALIVE_CONNCHECK > 0 &&
+          (ports_get_epoch_time() - pc->agent.binding_request_time) > KEEPALIVE_CONNCHECK) {
         LOGE("binding request timeout in COMPLETED state");
         STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-    }
-    break;
-    //     LOGI("PEER_CONNECTION_COMPLETED %lld" , pc->last_binding_request_time);
-    //     time_t current_time = time(NULL);
-    //     LOGI("PEER_CONNECTION_COMPLETED %lld" , current_time);
-    //     LOGI("PEER_CONNECTION_COMPLETED %lld" , current_time - pc->last_binding_request_time);
-    //     if (current_time - pc->last_binding_request_time >= 8) {
-    //       agent_connectivity_check(&pc->agent, 1);
-    //       LOGI("heartbeat sent!");
-    //       pc->last_binding_request_time = current_time;
-    //     }
-
-    //   if ((pc->agent_ret = agent_recv(&pc->agent, pc->agent_buf, sizeof(pc->agent_buf))) > 0) {
-    //     LOGD("agent_recv %d", pc->agent_ret);
-
-    //     if (rtcp_probe(pc->agent_buf, pc->agent_ret)) {
-    //       LOGD("Got RTCP packet");
-    //       int decrypt_status = dtls_srtp_decrypt_rtp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
-    //       if (decrypt_status != 0) {
-    //           LOGE("SRTP decryption failed with code %d", decrypt_status);
-    //           return 0;
-    //       }
-    //       // dtls_srtp_decrypt_rtcp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
-    //       peer_connection_incoming_rtcp(pc, pc->agent_buf, pc->agent_ret);
-
-    //     } else if (dtls_srtp_probe(pc->agent_buf)) {
-    //       int ret = dtls_srtp_read(&pc->dtls_srtp, pc->temp_buf, sizeof(pc->temp_buf));
-    //       LOGD("Got DTLS data %d", ret);
-
-    //       if (ret > 0) {
-    //         sctp_incoming_data(&pc->sctp, (char*)pc->temp_buf, ret);
-    //       }
-
-    //     } else if (rtp_packet_validate(pc->agent_buf, pc->agent_ret)) {
-    //       LOGD("Got RTP packet");
-
-    //       dtls_srtp_decrypt_rtp_packet(&pc->dtls_srtp, pc->agent_buf, &pc->agent_ret);
-
-    //       ssrc = rtp_get_ssrc(pc->agent_buf);
-    //       if (ssrc == pc->remote_assrc) {
-    //         rtp_decoder_decode(&pc->artp_decoder, pc->agent_buf, pc->agent_ret);
-    //       } else if (ssrc == pc->remote_vssrc) {
-    //         rtp_decoder_decode(&pc->vrtp_decoder, pc->agent_buf, pc->agent_ret);
-    //       }
-
-    //     } else {
-    //       LOGW("Unknown data");
-    //     }
-    //   }
-
-    //   if (KEEPALIVE_CONNCHECK > 0 && (ports_get_epoch_time() - pc->agent.binding_request_time) > KEEPALIVE_CONNCHECK) {
-    //     LOGI("binding request timeout");
-    //     STATE_CHANGED(pc, PEER_CONNECTION_CLOSED);
-    //   }
-
-    //   break;
+      }
+      break;
     case PEER_CONNECTION_FAILED:
       break;
     case PEER_CONNECTION_DISCONNECTED:
@@ -724,7 +625,6 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
   Agent* agent = &pc->agent;
 
   while ((line = strstr(start, "\r\n"))) {
-    
     line = strstr(start, "\r\n");
     strncpy(buf, start, line - start);
     buf[line - start] = '\0';
@@ -732,7 +632,7 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
     if (strstr(buf, "a=setup:passive")) {
       role = DTLS_SRTP_ROLE_CLIENT;
     }
-  
+
     if (strstr(buf, "a=fingerprint")) {
       strncpy(pc->dtls_srtp.remote_fingerprint, buf + 22, DTLS_SRTP_FINGERPRINT_LENGTH);
     }
@@ -742,7 +642,6 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
         (strncmp(buf + strlen("a=ice-ufrag:"), agent->remote_ufrag, strlen(agent->remote_ufrag)) == 0)) {
       is_update = 1;
     }
-
 
     if (strstr(buf, "m=video")) {
       ssrc = &pc->remote_vssrc;
@@ -766,16 +665,12 @@ void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp_
     peer_connection_state_new(pc, role, 0);
   }
 
-
   agent_set_remote_description(&pc->agent, (char*)sdp_text);
-  printf("Setting remote description\n");
   STATE_CHANGED(pc, PEER_CONNECTION_CHECKING);
 }
 
 void peer_connection_create_offer(PeerConnection* pc) {
-  printf("Creating peer connection offer\n");
   STATE_CHANGED(pc, PEER_CONNECTION_NEW);
-  printf("Below the state changed !!");
   pc->b_local_description_created = 0;
 }
 
@@ -804,8 +699,7 @@ void peer_connection_on_receiver_packet_loss(PeerConnection* pc,
 int counter4 = 0;
 
 void peer_connection_onicecandidate(PeerConnection* pc, void (*onicecandidate)(char* sdp_text, void* userdata)) {
-printf("Counter inside the peer_connection_onicecandidate:%d", counter4);
-counter4++;
+  counter4++;
   pc->onicecandidate = onicecandidate;
 }
 

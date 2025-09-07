@@ -1,6 +1,6 @@
 project(lib)
 
-file(GLOB SRCS "stun.c" "dtls_srtp.c" "peer_connection.c" "peer_signaling.c" "board.c" "videosdk.c" "audio.c" "rtcp.c" "*.c")
+file(GLOB SRCS "rtp.c" "ssl_transport.c" "stun.c" "dtls_srtp.c" "peer_connection.c" "peer_signaling.c" "board.c" "videosdk.c" "audio.c" "rtcp.c" "*.c")
 
 file(GLOB HEADERS "peer.h" "peer_connection.h" "agent.c" "peer_signaling.h")
 

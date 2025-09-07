@@ -180,24 +180,6 @@ static int rtp_encoder_encode_generic(RtpEncoder* rtp_encoder, uint8_t* buf, siz
   rtp_header->ssrc = htonl(rtp_encoder->ssrc);
   memcpy(rtp_encoder->buf + sizeof(RtpHeader), buf, size);
 
-
-    // // Logging
-    // printf("RTP Header Encoding:\n");
-    // printf("  Version       : %d\n", rtp_header->version);
-    // printf("  Padding       : %d\n", rtp_header->padding);
-    // printf("  Extension     : %d\n", rtp_header->extension);
-    // printf("  CSRC Count    : %d\n", rtp_header->csrccount);
-    // printf("  Marker Bit    : %d\n", rtp_header->markerbit);
-    // printf("  Payload Type  : %d\n", rtp_header->type);
-    // printf("  Sequence Num  : %u (network byte order: 0x%04X)\n", rtp_encoder->seq_number - 1, rtp_header->seq_number);
-    // printf("  Timestamp     : %" PRIu32 " (network byte order: 0x%08" PRIX32 ")\n",
-    //        rtp_encoder->timestamp - rtp_encoder->timestamp_increment,
-    //        rtp_header->timestamp);
-    // printf("  SSRC          : %" PRIu32 " (network byte order: 0x%08" PRIX32 ")\n",
-    //        rtp_encoder->ssrc,
-    //        rtp_header->ssrc);
-    // printf("  Payload Size  : %zu bytes\n", size);
-
   rtp_encoder->on_packet(rtp_encoder->buf, size + sizeof(RtpHeader), rtp_encoder->user_data);
 
   return 0;

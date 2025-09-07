@@ -29,7 +29,6 @@ int agent_create(Agent* agent) {
     LOGE("Failed to create UDP socket.");
     return ret;
   }
-  LOGI("create IPv4 UDP socket: %d", agent->udp_sockets[0].fd);
 
 #if CONFIG_IPV6
   if ((ret = udp_socket_open(&agent->udp_sockets[1], AF_INET6, 0)) < 0) {
@@ -64,9 +63,10 @@ static int agent_socket_recv(Agent* agent, Address* addr, uint8_t* buf, int len)
   int maxfd = -1;
   fd_set rfds;
   struct timeval tv;
-  int addr_type[] = { AF_INET,
+  int addr_type[] = {
+      AF_INET,
 #if CONFIG_IPV6
-                      AF_INET6,
+      AF_INET6,
 #endif
   };
 
@@ -127,9 +127,10 @@ static int agent_create_host_addr(Agent* agent) {
   int i, j;
   const char* iface_prefx[] = {CONFIG_IFACE_PREFIX};
   IceCandidate* ice_candidate;
-  int addr_type[] = { AF_INET,
+  int addr_type[] = {
+      AF_INET,
 #if CONFIG_IPV6
-                      AF_INET6,
+      AF_INET6,
 #endif
   };
 
@@ -360,7 +361,7 @@ void agent_process_stun_request(Agent* agent, StunMessage* stun_msg, Address* ad
       }
       break;
     default:
-    LOGI("[ICE] Received valid  DEFAULT");
+      LOGI("[ICE] Received valid  DEFAULT");
       break;
   }
 }
@@ -379,31 +380,26 @@ void agent_process_stun_response(Agent* agent, StunMessage* stun_msg) {
 
 #pragma pack(push, 1)
 typedef struct {
-    uint16_t type;
-    uint16_t length;
+  uint16_t type;
+  uint16_t length;
 } StunAttrHdr;
 #pragma pack(pop)
 
 #define STUN_ATTR_ERROR_CODE 0x0009
 
 int agent_recv(Agent* agent, uint8_t* buf, int len) {
-  LOGI("agent_recv");
   int ret = -1;
   StunMessage stun_msg;
   Address addr;
   if ((ret = agent_socket_recv(agent, &addr, buf, len)) > 0 && stun_probe(buf, len) == 0) {
-   
     memcpy(stun_msg.buf, buf, ret);
     stun_msg.size = ret;
     stun_parse_msg_buf(&stun_msg);
-    LOGI("agent_recv stun_msg if con %d" , stun_msg.stunclass);
     switch (stun_msg.stunclass) {
       case STUN_CLASS_REQUEST:
-        LOGI("STUN_CLASS_REQUEST");
         agent_process_stun_request(agent, &stun_msg, &addr);
         break;
       case STUN_CLASS_RESPONSE:
-        LOGI("STUN_CLASS_SUCCESS_RESPONSE");
         agent_process_stun_response(agent, &stun_msg);
         break;
       case STUN_CLASS_ERROR:
@@ -414,40 +410,40 @@ int agent_recv(Agent* agent, uint8_t* buf, int len) {
         // Pointer just past the 20‑byte STUN header
         uint8_t* p = stun_msg.buf + 20;
         int remaining = stun_msg.size - 20;
-    
+
         while (remaining >= sizeof(StunAttrHdr)) {
-            StunAttrHdr* hdr = (StunAttrHdr*)p;
-            uint16_t attr_type = ntohs(hdr->type);
-            uint16_t attr_len  = ntohs(hdr->length);
-            uint8_t* value      = p + sizeof(StunAttrHdr);
-    
-            if (attr_type == STUN_ATTR_ERROR_CODE) {
-                if (attr_len >= 4) {
-                    // first 2 bytes are reserved (class in high 3 bits, number in low 8 bits)
-                    int class_byte = value[2] & 0x07;
-                    int number     = value[3];
-                    int error_code = class_byte * 100 + number;
-    
-                    // rest is reason phrase, not necessarily NUL‑terminated
-                    int reason_len = attr_len - 4;
-                    char reason[256] = {0};
-                    if (reason_len > 0 && reason_len < sizeof(reason)) {
-                        memcpy(reason, value + 4, reason_len);
-                        reason[reason_len] = '\0';
-                    }
-    
-                    LOGI("STUN Error Code=%d, Reason=\"%s\"", error_code, reason);
-                } else {
-                    LOGI("Malformed ERROR‑CODE attribute (len=%u)", attr_len);
-                }
-                break;  // found it; stop scanning
+          StunAttrHdr* hdr = (StunAttrHdr*)p;
+          uint16_t attr_type = ntohs(hdr->type);
+          uint16_t attr_len = ntohs(hdr->length);
+          uint8_t* value = p + sizeof(StunAttrHdr);
+
+          if (attr_type == STUN_ATTR_ERROR_CODE) {
+            if (attr_len >= 4) {
+              // first 2 bytes are reserved (class in high 3 bits, number in low 8 bits)
+              int class_byte = value[2] & 0x07;
+              int number = value[3];
+              int error_code = class_byte * 100 + number;
+
+              // rest is reason phrase, not necessarily NUL‑terminated
+              int reason_len = attr_len - 4;
+              char reason[256] = {0};
+              if (reason_len > 0 && reason_len < sizeof(reason)) {
+                memcpy(reason, value + 4, reason_len);
+                reason[reason_len] = '\0';
+              }
+
+              LOGI("STUN Error Code=%d, Reason=\"%s\"", error_code, reason);
+            } else {
+              LOGI("Malformed ERROR‑CODE attribute (len=%u)", attr_len);
             }
-    
-            // advance to next attr (with 32‑bit padding)
-            int total = sizeof(StunAttrHdr) + attr_len;
-            int padded = (total + 3) & ~3;
-            p        += padded;
-            remaining -= padded;
+            break;  // found it; stop scanning
+          }
+
+          // advance to next attr (with 32‑bit padding)
+          int total = sizeof(StunAttrHdr) + attr_len;
+          int padded = (total + 3) & ~3;
+          p += padded;
+          remaining -= padded;
         }
         break;
       default:
@@ -469,41 +465,41 @@ void agent_set_remote_description(Agent* agent, char* description) {
   agent->remote_candidates_count = 0;  // Clear previous candidates
 
   while ((line_end = strstr(line_start, "\r\n")) != NULL) {
-      size_t line_len = line_end - line_start;
-      char line[256] = {0};
-      if (line_len >= sizeof(line)) line_len = sizeof(line) - 1;
-      strncpy(line, line_start, line_len);
+    size_t line_len = line_end - line_start;
+    char line[256] = {0};
+    if (line_len >= sizeof(line))
+      line_len = sizeof(line) - 1;
+    strncpy(line, line_start, line_len);
 
-      if (strncmp(line, "a=ice-ufrag:", 12) == 0) {
-          size_t ufrag_len = strlen(line + 12);
-          strncpy(agent->remote_ufrag, line + 12, ufrag_len);
-          agent->remote_ufrag[ufrag_len] = '\0';
+    if (strncmp(line, "a=ice-ufrag:", 12) == 0) {
+      size_t ufrag_len = strlen(line + 12);
+      strncpy(agent->remote_ufrag, line + 12, ufrag_len);
+      agent->remote_ufrag[ufrag_len] = '\0';
 
-      } else if (strncmp(line, "a=ice-pwd:", 10) == 0) {
-          size_t pwd_len = strlen(line + 10);
-          strncpy(agent->remote_upwd, line + 10, pwd_len);
-          agent->remote_upwd[pwd_len] = '\0';
+    } else if (strncmp(line, "a=ice-pwd:", 10) == 0) {
+      size_t pwd_len = strlen(line + 10);
+      strncpy(agent->remote_upwd, line + 10, pwd_len);
+      agent->remote_upwd[pwd_len] = '\0';
 
-      } else if (strncmp(line, "a=candidate:", 12) == 0) {
-          IceCandidate* candidate = &agent->remote_candidates[agent->remote_candidates_count];
-          if (ice_candidate_from_description(candidate, line, line + strlen(line)) == 0) {
-
-              // Check for duplicate based on integer foundation value
-              bool duplicate = false;
-              for (i = 0; i < agent->remote_candidates_count; i++) {
-                  if (agent->remote_candidates[i].foundation == candidate->foundation) {
-                      duplicate = true;
-                      break;
-                  }
-              }
-
-              if (!duplicate) {
-                  agent->remote_candidates_count++;
-              }
+    } else if (strncmp(line, "a=candidate:", 12) == 0) {
+      IceCandidate* candidate = &agent->remote_candidates[agent->remote_candidates_count];
+      if (ice_candidate_from_description(candidate, line, line + strlen(line)) == 0) {
+        // Check for duplicate based on integer foundation value
+        bool duplicate = false;
+        for (i = 0; i < agent->remote_candidates_count; i++) {
+          if (agent->remote_candidates[i].foundation == candidate->foundation) {
+            duplicate = true;
+            break;
           }
-      }
+        }
 
-      line_start = line_end + 2;
+        if (!duplicate) {
+          agent->remote_candidates_count++;
+        }
+      }
+    }
+
+    line_start = line_end + 2;
   }
 
   LOGI("remote ufrag: %s", agent->remote_ufrag);
@@ -513,28 +509,26 @@ void agent_set_remote_description(Agent* agent, char* description) {
   // Generate candidate pairs
   agent->candidate_pairs_num = 0;
   for (i = 0; i < agent->local_candidates_count; i++) {
-      for (j = 0; j < agent->remote_candidates_count; j++) {
-          if (agent->local_candidates[i].addr.family == agent->remote_candidates[j].addr.family) {
-              agent->candidate_pairs[agent->candidate_pairs_num].local = &agent->local_candidates[i];
-              agent->candidate_pairs[agent->candidate_pairs_num].remote = &agent->remote_candidates[j];
-              agent->candidate_pairs[agent->candidate_pairs_num].priority =
-                  agent->local_candidates[i].priority + agent->remote_candidates[j].priority;
-              agent->candidate_pairs[agent->candidate_pairs_num].state = ICE_CANDIDATE_STATE_FROZEN;
-              agent->candidate_pairs_num++;
-          }
+    for (j = 0; j < agent->remote_candidates_count; j++) {
+      if (agent->local_candidates[i].addr.family == agent->remote_candidates[j].addr.family) {
+        agent->candidate_pairs[agent->candidate_pairs_num].local = &agent->local_candidates[i];
+        agent->candidate_pairs[agent->candidate_pairs_num].remote = &agent->remote_candidates[j];
+        agent->candidate_pairs[agent->candidate_pairs_num].priority =
+            agent->local_candidates[i].priority + agent->remote_candidates[j].priority;
+        agent->candidate_pairs[agent->candidate_pairs_num].state = ICE_CANDIDATE_STATE_FROZEN;
+        agent->candidate_pairs_num++;
       }
+    }
   }
 
   LOGI("candidate pairs num: %d", agent->candidate_pairs_num);
 }
 
-
-
 int agent_connectivity_check(Agent* agent, int is_heartbeat) {
   char addr_string[ADDRSTRLEN];
   uint8_t buf[1400];
   StunMessage msg;
-  if (!is_heartbeat) { 
+  if (!is_heartbeat) {
     if (agent->nominated_pair->state != ICE_CANDIDATE_STATE_INPROGRESS) {
       LOGI("agent_connectivity_check : nominated pair is not in progress");
       return -1;
@@ -552,7 +546,6 @@ int agent_connectivity_check(Agent* agent, int is_heartbeat) {
       return 0;
     }
   } else {
-    LOGI("[ICE] Sending heartbeat STUN binding request");
     agent_create_binding_request(agent, &msg, 1);
     agent_socket_send(agent, &agent->nominated_pair->remote->addr, msg.buf, msg.size);
   }

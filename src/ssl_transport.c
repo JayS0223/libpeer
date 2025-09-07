@@ -14,10 +14,6 @@
 #include "utils.h"
 
 #define SSL_RECV_TIMEOUT 1000
-static void mbedtls_debug(void *ctx, int level, const char *file, int line, const char *str) {
-    ((void) level);
-    fprintf((FILE *) ctx, "%s:%04d: %s", file, line, str);
-}
 static int ssl_transport_mbedtls_recv_timeout(void* ctx, unsigned char* buf, size_t len, uint32_t timeout) {
   int ret;
   fd_set read_fds;
@@ -84,8 +80,6 @@ int ssl_transport_connect(NetworkContext_t* net_ctx,
   }
   mbedtls_ssl_conf_ca_chain(&net_ctx->conf, &net_ctx->cacert, NULL);
   */
-  mbedtls_debug_set_threshold(4);
-  mbedtls_ssl_conf_dbg(&net_ctx->conf, mbedtls_debug, stdout);  // You must define `mbedtls_debug` (see below)
   mbedtls_ssl_conf_rng(&net_ctx->conf, mbedtls_ctr_drbg_random, &net_ctx->ctr_drbg);
 
   if ((ret = mbedtls_ssl_setup(&net_ctx->ssl, &net_ctx->conf)) != 0) {

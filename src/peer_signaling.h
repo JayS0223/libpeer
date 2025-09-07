@@ -1,8 +1,9 @@
 #ifndef PEER_SIGNALING_H_
 #define PEER_SIGNALING_H_
 
-#include "peer_connection.h"
 #include <core_http_client.h>
+#include <stdbool.h>
+#include "peer_connection.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,21 +22,20 @@ typedef struct ServiceConfiguration {
   PeerConnection* pc;
   const char* hostname;
   const char* path;
-  const char *auth_token;
+  const char* auth_token;
 } ServiceConfiguration;
 
-#define SERVICE_CONFIG_DEFAULT()  \
-  {                               \
-    .mqtt_url = "broker.emqx.io", \
-    .mqtt_port = 8883,            \
-    .client_id = "peer",          \
-    .http_url = "",               \
-    .http_port = 443,             \
-    .username = "",               \
-    .password = "",               \
-    .bearer_token = "",           \
-    .pc = NULL                    \
-  }
+#define SERVICE_CONFIG_DEFAULT()    \
+  {                                 \
+      .mqtt_url = "broker.emqx.io", \
+      .mqtt_port = 8883,            \
+      .client_id = "peer",          \
+      .http_url = "",               \
+      .http_port = 443,             \
+      .username = "",               \
+      .password = "",               \
+      .bearer_token = "",           \
+      .pc = NULL}
 
 void peer_signaling_set_config(ServiceConfiguration* config);
 
@@ -43,14 +43,13 @@ int peer_signaling_whip_connect();
 
 int peer_signaling_whep_connect();
 
-void peer_signaling_whip_disconnect();
+bool get_publish_check();
 
-int peer_signaling_join_channel();
+bool get_subscribe_check();
 
-void peer_signaling_leave_channel();
+void set_publish_check(bool value);
 
-int peer_signaling_loop();
-
+void set_subscribe_check(bool value);
 
 HTTPResponse_t peer_signaling_http_request(const TransportInterface_t* transport_interface,
                                            const char* method,
@@ -63,7 +62,8 @@ HTTPResponse_t peer_signaling_http_request(const TransportInterface_t* transport
                                            size_t auth_len,
                                            const char* body,
                                            size_t body_len);
-int delete_peer_from_meeting();
+int delete_publish_peer_from_meeting();
+int delete_subscribe_peer_from_meeting();
 
 #ifdef __cplusplus
 }
