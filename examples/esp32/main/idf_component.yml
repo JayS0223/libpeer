@@ -1,13 +1,14 @@
 ## IDF Component Manager Manifest File
 dependencies:
-  sepfy/libpeer: 
-    path: ../../../
-  mdns: "*"
+  sepfy/libpeer:
+    path: /Users/jayshah/Downloads/iot-sdk/
+  mdns: '*'
+
   protocol_examples_common:
     path: ${IDF_PATH}/examples/common_components/protocol_examples_common
     ## Required IDF version
   idf:
-    version: ">=4.1.0"
+    version: '>=4.1.0'
   # # Put list of dependencies here
   # # For components maintained by Espressif:
   # component: "~1.0.0"

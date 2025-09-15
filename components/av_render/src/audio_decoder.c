@@ -76,24 +76,17 @@ static esp_audio_type_t get_audio_decoder_type(av_render_audio_codec_t audio_for
 
 static int _open_audio_dec(adec_t *adec, av_render_audio_info_t *stream_info)
 {
-    printf("Open audio decoder codec %d sample rate %ld channel %d bits %d\n",
-           stream_info->codec, stream_info->sample_rate, stream_info->channel, stream_info->bits_per_sample);
     esp_audio_dec_cfg_t dec_cfg = {
         .type = get_audio_decoder_type(stream_info->codec),
     };
-    printf("Audio decoder type %d\n", dec_cfg.type);
     if (dec_cfg.type == ESP_AUDIO_TYPE_UNSUPPORT) {
         ESP_LOGE(TAG, "Audio codec %d not supported", stream_info->codec);
         return -1;
     }
-
-    printf("Audio decoder type %d\n", dec_cfg.type);
     uint8_t *frame_data = (uint8_t *)media_lib_realloc(adec->frame_data, ADEC_DEFAULT_OUTPUT_SIZE);
     if (frame_data == NULL) {
-        printf("Failed to allocate frame data buffer\n");
         return ESP_MEDIA_ERR_NO_MEM;
     }
-    printf("Audio decoder frame data %p size %d\n", frame_data, ADEC_DEFAULT_OUTPUT_SIZE);
     adec->frame_size = ADEC_DEFAULT_OUTPUT_SIZE;
     adec->frame_data = frame_data;
 
@@ -133,7 +126,6 @@ static int _open_audio_dec(adec_t *adec, av_render_audio_info_t *stream_info)
         } break;
         case ESP_AUDIO_TYPE_G711A:
         case ESP_AUDIO_TYPE_G711U: {
-            printf("G711 codec %d channel %d\n", dec_cfg.type, stream_info->channel);// G711 always 800
             esp_g711_dec_cfg_t g711_cfg = {
                 .channel = stream_info->channel,
             };
@@ -218,7 +210,6 @@ RETRY:
         esp_audio_dec_info_t header = {};
         esp_audio_dec_get_info(adec->dec_handle, &header);
 
-        printf("Get samplerate %d chanel %d\n", (int)header.sample_rate, header.channel);
         
         if (header.sample_rate && header.channel && header.bits_per_sample) {
             adec->frame_info.sample_rate = header.sample_rate;
@@ -235,8 +226,6 @@ RETRY:
     if (channels > 0 && bits_per_sample > 0) {
         num_samples = frame.decoded_size / (channels * (bits_per_sample / 8));
     }
-    printf("Decoded frame: seq=%lu, size=%lu bytes, samples=%lu (channels=%d, bits/sample=%d)\n", frame_data->sequence_number, (unsigned long)frame.decoded_size, num_samples, channels, bits_per_sample);
-    printf("Size of the frame after been decoded:%lu",frame.decoded_size);
     if (adec->frame_cb) {
         adec->frame_cb(frame_data, adec->ctx);
     }
@@ -262,7 +251,6 @@ static int _start_audio_dec(adec_t *adec, av_render_audio_data_t *frame, av_rend
 
 adec_handle_t adec_open(adec_cfg_t *cfg)
 {
-    printf("Audio decoder open codec %d\n", cfg->audio_info.codec);
     adec_t *adec = (adec_t *)media_lib_calloc(1, sizeof(adec_t));
     if (adec == NULL) {
         return NULL;

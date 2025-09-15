@@ -18,7 +18,7 @@
 
 static const char* TAG = "webrtc";
 
-const char* token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI0N2M3ZTJlYy01NzY5LTQ3OWQtYjdjNS0zYjU5MDcxYzhhMDkiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTY3MjgwOTcxMywiZXhwIjoxODMwNTk3NzEzfQ.KeXr1cxORdq6X7-sxBLLV7MsUnwuJGLaG8_VTyTFBig";
+const char* token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcGlrZXkiOiI1MzE0YzVkZC0wN2MzLTRjZTgtYThmYi03ZmY0ZDZiMDdhYTIiLCJwZXJtaXNzaW9ucyI6WyJhbGxvd19qb2luIl0sImlhdCI6MTc1MTI2MTQ4MCwiZXhwIjoxNzgyNzk3NDgwfQ.yMH2talasjiL7ftJt2hl9h6_L96G1YU_tjujycAEi9M";
 
 // static void meeting_task(void *pvParameters)
 // {
@@ -73,16 +73,19 @@ void app_main(void) {
   //       ESP_LOGE(TAG, "Failed to create meeting_task");
   //   }
   init_config_t init_cfg = {
-      .meetingID = "roye-pqdd-wbfl",
+      .meetingID = "fu4f-wh7j-kf01",
       .token = token,
       .displayName = "ESP32-Device",
       .audioCodec = AUDIO_CODEC_OPUS,
   };
 
-  init(&init_cfg);
-  startPublishAudio("1234234");
-  startSubscribeAudio("wefwdcw", "mqnvqmtF");
-
+  result_t init_result = init(&init_cfg);
+  printf("Result: %d\n", init_result);
+  result_t result_publish = startPublishAudio(NULL);
+  result_t result_susbcribe = startSubscribeAudio(NULL, "tTNlWEZK");
+  vTaskDelay(pdMS_TO_TICKS(100000));
+  result_t result_leave = leave();
+  printf("Result:%d\n", result_publish);
   while (1) {
     vTaskDelay(pdMS_TO_TICKS(10));
   }

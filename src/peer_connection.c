@@ -158,12 +158,12 @@ void* peer_connection_get_sctp(PeerConnection* pc) {
   return &pc->sctp;
 }
 
-PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish, bool subscribe) {
+PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish) {
   PeerConnection* pc = calloc(1, sizeof(PeerConnection));
   if (!pc) {
     return NULL;
   }
-  g_subscribe = subscribe;
+  g_subscribe = !publish;
   g_publish = publish;
   memcpy(&pc->config, config, sizeof(PeerConfiguration));
 
@@ -523,7 +523,7 @@ result_t peer_connection_loop(PeerConnection* pc) {
         //  peer_connection_state_new(pc, DTLS_SRTP_ROLE_SERVER, 1);
       } else {
         STATE_CHANGED(pc, PEER_CONNECTION_FAILED);
-        return TASK_OVERRIDED;
+        return TASK_ALREADY_STARTED;
       }
       break;
 

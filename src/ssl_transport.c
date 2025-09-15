@@ -27,7 +27,7 @@ static int ssl_transport_mbedtls_recv_timeout(void* ctx, unsigned char* buf, siz
   ret = select(((TcpSocket*)ctx)->fd + 1, &read_fds, NULL, NULL, &tv);
   if (ret < 0) {
     return -1;
-  }   else if (ret == 0) {
+  } else if (ret == 0) {
     // timeout
   } else {
     if (FD_ISSET(((TcpSocket*)ctx)->fd, &read_fds)) {
@@ -91,7 +91,7 @@ int ssl_transport_connect(NetworkContext_t* net_ctx,
     LOGE("ssl set hostname error: -0x%x", (unsigned int)-ret);
     return -1;
   }
-LOGI("ssl set hostname success: %s", host);
+  LOGI("ssl set hostname success: %s", host);
   memset(&resolved_addr, 0, sizeof(resolved_addr));
   tcp_socket_open(&net_ctx->tcp_socket, AF_INET);
 
@@ -107,28 +107,27 @@ LOGI("ssl set hostname success: %s", host);
 
   LOGI("start to handshake");
 
-    int retries = 0;
-    const int max_retries = 5;
+  int retries = 0;
+  const int max_retries = 5;
 
-    while ((ret = mbedtls_ssl_handshake(&net_ctx->ssl)) != 0) {
-        if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
-            ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
-            
-            LOGE("ssl handshake error: -0x%x", (unsigned int)-ret);
-            
-            retries++;
-            if (retries >= max_retries) {
-                LOGE("ssl handshake failed after %d attempts", retries);
-                return -1;
-            }
+  while ((ret = mbedtls_ssl_handshake(&net_ctx->ssl)) != 0) {
+    if (ret != MBEDTLS_ERR_SSL_WANT_READ &&
+        ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+      LOGE("ssl handshake error: -0x%x", (unsigned int)-ret);
 
-            // Delay 100ms before retry
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
+      retries++;
+      if (retries >= max_retries) {
+        LOGE("ssl handshake failed after %d attempts", retries);
+        return -1;
+      }
+
+      // Delay 100ms before retry
+      vTaskDelay(pdMS_TO_TICKS(100));
     }
+  }
 
-    LOGI("ssl handshake successful");
-    return 0;
+  LOGI("ssl handshake successful");
+  return 0;
 }
 
 void ssl_transport_disconnect(NetworkContext_t* net_ctx) {

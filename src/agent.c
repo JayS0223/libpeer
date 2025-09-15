@@ -457,7 +457,6 @@ int agent_recv(Agent* agent, uint8_t* buf, int len) {
 
 void agent_set_remote_description(Agent* agent, char* description) {
   int i, j;
-  LOGI("Set remote description:\n%s", description);
 
   char* line_start = description;
   char* line_end = NULL;

@@ -200,47 +200,55 @@ static int peer_signaling_http_post(const char* hostname, const char* path, int 
     }
   }
 
-  if (res.pHeaders) {
+ if (res.pHeaders) {
     char* location_line = strstr((char*)res.pHeaders, "Location:");
     if (location_line) {
-      location_line += 9;
-      while (*location_line == ' ')
-        location_line++;
-      char* end = strstr(location_line, "\r\n");
-      if (!end)
-        end = strstr(location_line, "\n");
-      if (end && (end - location_line) < sizeof(resource_url)) {
-        strncpy(resource_url, location_line, end - location_line);
-        resource_url[end - location_line] = '\0';
+        location_line += 9;
+        while (*location_line == ' ')
+            location_line++;
+        char* end = strstr(location_line, "\r\n");
+        if (!end)
+            end = strstr(location_line, "\n");
+        if (end && (end - location_line) < sizeof(resource_url)) {
+            strncpy(resource_url, location_line, end - location_line);
+            resource_url[end - location_line] = '\0';
 
-        if (strncmp(resource_url, "https://", 8) == 0) {
-          char* path_start = strchr(resource_url + 8, '/');
-          if (path_start) {
-            memmove(resource_url, path_start, strlen(path_start) + 1);
-          } else {
-            LOGE("Invalid Location URL: No path found.");
-            ssl_transport_disconnect(&net_ctx);
-            return -1;
-          }
-        }
+            if (strncmp(resource_url, "https://", 8) == 0) {
+                char* path_start = strchr(resource_url + 8, '/');
+                if (path_start) {
+                    memmove(resource_url, path_start, strlen(path_start) + 1);
+                } else {
+                    LOGE("Invalid Location URL: No path found.");
+                    return -1;
+                }
+            }
+
         if (strstr(resource_url, "whip")) {
-          publish_check = true;
-          strncpy(resource_url_publish, resource_url, sizeof(resource_url_publish) - 1);
-          resource_url_publish[sizeof(resource_url_publish) - 1] = '\0';
-        } else {
-          subscribe_check = true;
-          strncpy(resource_url_subscribe, resource_url, sizeof(resource_url_subscribe) - 1);
-          resource_url_subscribe[sizeof(resource_url_subscribe) - 1] = '\0';
-        }
-
-      } else {
-        LOGE("Failed to parse Location header.\n");
-      }
+    if (strlen(resource_url) > 0) {
+        strncpy(resource_url_publish, resource_url, sizeof(resource_url_publish) - 1);
+        resource_url_publish[sizeof(resource_url_publish) - 1] = '\0';
     } else {
-      LOGE("Location header not found.\n");
+        LOGE("Empty publish resource URL.");
+        set_publish_check(false);
     }
-  }
-
+} else {
+    if (strlen(resource_url) > 0) {
+        strncpy(resource_url_subscribe, resource_url, sizeof(resource_url_subscribe) - 1);
+        resource_url_subscribe[sizeof(resource_url_subscribe) - 1] = '\0';
+    } else {
+        LOGE("Empty subscribe resource URL.");
+        set_subscribe_check(false);
+    }
+}
+        } else {
+            LOGE("Failed to parse Location header.");
+            return -1;
+        }
+    } else {
+        LOGE("Location header not found.");
+        return -1;
+    }
+}
   if (res.pHeaders == NULL) {
     LOGE("Response headers are NULL");
     return -1;

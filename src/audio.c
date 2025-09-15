@@ -1,5 +1,4 @@
 #include <math.h>
-
 #include <string.h>
 #include "audio_decoder.h"
 #include "av_render.h"
@@ -21,15 +20,18 @@
 #include "sdkconfig.h"
 #include "videosdk.c"
 #include "videosdk.h"
+
 #define CUSTOM_HEADER_SIZE 16
 typedef struct {
   audio_render_handle_t audio_render;
   av_render_handle_t player;
 } player_system_t;
 
-extern TaskHandle_t xSubscribeAudioTaskHandle;
 static player_system_t player_sys;
-
+int opus_sample_rate = 16000;
+int pcma_pcmu_sample_rate = 8000;
+int channel = 1;
+int bits_per_sample = 16;
 #if defined(CONFIG_ESP32S3_XIAO)
 #define I2S_CLK_GPIO 42
 #define I2S_DATA_GPIO 41
@@ -41,34 +43,10 @@ static player_system_t player_sys;
 #define I2S_DOUT_GPIO 5
 #endif
 
-static bool subscribed = false;
 #define TAG "AUDIO"
-// === Audio Playback Config ===
-#define AUDIO_FRAME_MAX_SIZE 640  // 20ms PCM16 mono @ 8kHz = 160 samples * 2 bytes
-#define AUDIO_QUEUE_LEN 10
 
-typedef struct {
-  uint8_t data[AUDIO_FRAME_MAX_SIZE];
-  size_t length;
-} AudioFrame_t;
-
-static i2s_chan_handle_t tx_handle = NULL;  // I2S TX for playback
-static QueueHandle_t audio_queue = NULL;
-
-#define FRAME_MS 20                                                         // 20 ms audio frame
-#define SAMPLE_RATE 8000                                                    // 16 kHz audio
-#define SAMPLE_SIZE 2                                                       // 16-bit PCM = 2 bytes
-#define CHANNELS 1                                                          // Mono
-#define FRAME_LEN (SAMPLE_RATE / 1000 * FRAME_MS * SAMPLE_SIZE * CHANNELS)  // 640 bytes
-int64_t last_patch_time = 0;
 extern PeerConnection* g_pc_publish;
 extern PeerConnectionState eState;
-int64_t get_timestamp() {
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return (tv.tv_sec * 1000LL + (tv.tv_usec / 1000LL));
-}
-int64_t curr_time = 0;
 static esp_codec_dev_handle_t record_handle = NULL;
 static esp_audio_enc_handle_t enc_handle = NULL;
 static esp_audio_enc_in_frame_t aenc_in_frame = {0};
@@ -80,7 +58,6 @@ i2s_chan_handle_t rx_handle = NULL;
 av_render_audio_info_t audio_info;
 esp_codec_dev_sample_info_t fs;
 av_render_audio_frame_info_t aud_info;
-// int32_t audio_get_samples(uint8_t* buf, size_t size);
 
 static uint8_t* read_buf = NULL;
 static uint8_t* write_buf = NULL;
@@ -93,7 +70,7 @@ esp_err_t audio_codec_init(audio_codec_t cfg) {
 
   if (cfg == AUDIO_CODEC_OPUS) {
     i2s_pdm_rx_config_t pdm_rx_cfg = {
-        .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(16000),
+        .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(opus_sample_rate),
         .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
             .clk = I2S_CLK_GPIO,
@@ -107,7 +84,7 @@ esp_err_t audio_codec_init(audio_codec_t cfg) {
     ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
   } else {
     i2s_pdm_rx_config_t pdm_rx_cfg = {
-        .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(8000),
+        .clk_cfg = I2S_PDM_RX_CLK_DEFAULT_CONFIG(pcma_pcmu_sample_rate),
         .slot_cfg = I2S_PDM_RX_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO),
         .gpio_cfg = {
             .clk = I2S_CLK_GPIO,
@@ -127,9 +104,9 @@ esp_err_t audio_codec_init(audio_codec_t cfg) {
 
   int read_size = 0, out_size = 0;
   if (cfg == AUDIO_CODEC_OPUS) {
-    opus_enc_cfg.sample_rate = 16000;
-    opus_enc_cfg.channel = 1;
-    opus_enc_cfg.bits_per_sample = 16;
+    opus_enc_cfg.sample_rate = opus_sample_rate;
+    opus_enc_cfg.channel = channel;
+    opus_enc_cfg.bits_per_sample = bits_per_sample;
     opus_enc_cfg.frame_duration = ESP_OPUS_ENC_FRAME_DURATION_20_MS;
     opus_enc_cfg.application_mode = ESP_OPUS_ENC_APPLICATION_AUDIO;
 
@@ -137,18 +114,18 @@ esp_err_t audio_codec_init(audio_codec_t cfg) {
     enc_cfg.cfg = &opus_enc_cfg;
     enc_cfg.cfg_sz = sizeof(opus_enc_cfg);
 
-  } else if (cfg == AUDIO_CODEC_G711U) {
-    g711_cfg.sample_rate = 8000;
-    g711_cfg.channel = 1;
-    g711_cfg.bits_per_sample = 16;
+  } else if (cfg == AUDIO_CODEC_PCMU) {
+    g711_cfg.sample_rate = pcma_pcmu_sample_rate;
+    g711_cfg.channel = channel;
+    g711_cfg.bits_per_sample = bits_per_sample;
     g711_cfg.frame_duration = 20;
     enc_cfg.type = ESP_AUDIO_TYPE_G711U;
     enc_cfg.cfg = &g711_cfg;
     enc_cfg.cfg_sz = sizeof(g711_cfg);
   } else {
-    g711_cfg.sample_rate = 8000;
-    g711_cfg.channel = 1;
-    g711_cfg.bits_per_sample = 16;
+    g711_cfg.sample_rate = pcma_pcmu_sample_rate;
+    g711_cfg.channel = channel;
+    g711_cfg.bits_per_sample = bits_per_sample;
     g711_cfg.frame_duration = 20;
     enc_cfg.type = ESP_AUDIO_TYPE_G711A;
     enc_cfg.cfg = &g711_cfg;
@@ -164,14 +141,14 @@ esp_err_t audio_codec_init(audio_codec_t cfg) {
   }
   ESP_LOGI(TAG, "Record handle initialized: %p", record_handle);
   if (cfg == AUDIO_CODEC_OPUS) {
-    fs.sample_rate = 16000;
-    fs.channel = 1;
-    fs.bits_per_sample = 16;
+    fs.sample_rate = opus_sample_rate;
+    fs.channel = channel;
+    fs.bits_per_sample = bits_per_sample;
 
   } else {
-    fs.sample_rate = 8000;
-    fs.channel = 1;
-    fs.bits_per_sample = 16;
+    fs.sample_rate = pcma_pcmu_sample_rate;
+    fs.channel = channel;
+    fs.bits_per_sample = bits_per_sample;
   }
   esp_codec_dev_open(record_handle, &fs);
 
@@ -225,33 +202,33 @@ esp_err_t audio_av_render_init(audio_codec_t codec) {
   player_sys.player = av_render_open(&render_cfg);
   if (codec == AUDIO_CODEC_OPUS) {
     audio_info.codec = AV_RENDER_AUDIO_CODEC_OPUS;
-    audio_info.sample_rate = 16000;
-    audio_info.channel = 1;
-    audio_info.bits_per_sample = 16;
+    audio_info.sample_rate = opus_sample_rate;
+    audio_info.channel = channel;
+    audio_info.bits_per_sample = bits_per_sample;
 
-    aud_info.sample_rate = 16000;
+    aud_info.sample_rate = opus_sample_rate;
     aud_info.channel = 1;
-    aud_info.bits_per_sample = 16;
+    aud_info.bits_per_sample = bits_per_sample;
 
-  } else if (codec == AUDIO_CODEC_G711A) {
-    audio_info.codec = AV_RENDER_AUDIO_CODEC_G711A;
-    audio_info.sample_rate = 8000;
-    audio_info.channel = 1;
-    audio_info.bits_per_sample = 16;
+  } else if (codec == AUDIO_CODEC_PCMA) {
+    audio_info.codec = AV_RENDER_AUDIO_CODEC_PCMA;
+    audio_info.sample_rate = pcma_pcmu_sample_rate;
+    audio_info.channel = channel;
+    audio_info.bits_per_sample = bits_per_sample;
 
-    aud_info.sample_rate = 8000;
-    aud_info.channel = 1;
-    aud_info.bits_per_sample = 16;
+    aud_info.sample_rate = pcma_pcmu_sample_rate;
+    aud_info.channel = channel;
+    aud_info.bits_per_sample = bits_per_sample;
 
   } else {
-    audio_info.codec = AV_RENDER_AUDIO_CODEC_G711U;
-    audio_info.sample_rate = 8000;
-    audio_info.channel = 1;
-    audio_info.bits_per_sample = 16;
+    audio_info.codec = AV_RENDER_AUDIO_CODEC_PCMU;
+    audio_info.sample_rate = pcma_pcmu_sample_rate;
+    audio_info.channel = channel;
+    audio_info.bits_per_sample = bits_per_sample;
 
-    aud_info.sample_rate = 8000;
-    aud_info.channel = 1;
-    aud_info.bits_per_sample = 16;
+    aud_info.sample_rate = pcma_pcmu_sample_rate;
+    aud_info.channel = channel;
+    aud_info.bits_per_sample = bits_per_sample;
   }
 
   av_render_set_fixed_frame_info(player_sys.player, &aud_info);
@@ -304,12 +281,7 @@ void audio_task(void* arg) {
   }
 #endif
   int ret;
-  static int64_t last_time, last_log_time;
-  int64_t curr_time;
   float bytes = 0;
-
-  last_time = get_timestamp();
-  last_log_time = last_time;
 
   for (;;) {
     if (eState == PEER_CONNECTION_COMPLETED) {
@@ -333,13 +305,6 @@ void audio_task(void* arg) {
         LOGE("FAILED TO SEND AUDIO");
       }
 
-      curr_time = get_timestamp();
-      if ((curr_time - last_log_time) > 5000) {
-        float bitrate = 1000.0 * (bytes * 8.0 / (curr_time - last_time));
-        last_time = curr_time;
-        last_log_time = curr_time;
-        bytes = 0;
-      }
       vTaskDelay(pdMS_TO_TICKS(5));
     } else {
       vTaskDelay(pdMS_TO_TICKS(100));

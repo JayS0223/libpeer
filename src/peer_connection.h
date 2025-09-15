@@ -5,10 +5,10 @@
 #ifndef PEER_CONNECTION_H_
 #define PEER_CONNECTION_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdbool.h>
-#include "videosdk.h" 
+#include "videosdk.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -39,11 +39,11 @@ typedef enum MediaCodec {
 
   /* Video */
   CODEC_H264,
-  CODEC_VP8,    
-  CODEC_MJPEG,  
+  CODEC_VP8,
+  CODEC_MJPEG,
 
   /* Audio */
-  CODEC_OPUS,  
+  CODEC_OPUS,
   CODEC_PCMA,
   CODEC_PCMU,
 
@@ -56,8 +56,8 @@ typedef struct IceServer {
 
 } IceServer;
 
-typedef struct  {
-  char *type;
+typedef struct {
+  char* type;
 } connection_config_t;
 
 typedef struct PeerConfiguration {
@@ -82,7 +82,7 @@ PeerConnectionState peer_connection_get_state(PeerConnection* pc);
 
 void* peer_connection_get_sctp(PeerConnection* pc);
 
-PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish, bool subscribe);
+PeerConnection* peer_connection_create(PeerConfiguration* config, bool publish);
 
 void peer_connection_destroy(PeerConnection* pc);
 
@@ -105,7 +105,7 @@ int peer_connection_send_video(PeerConnection* pc, const uint8_t* packet, size_t
 
 void peer_connection_set_remote_description(PeerConnection* pc, const char* sdp);
 
-void peer_connection_create_offer(PeerConnection* pc );
+void peer_connection_create_offer(PeerConnection* pc);
 
 /**
  * @brief register callback function to handle packet loss from RTCP receiver report
